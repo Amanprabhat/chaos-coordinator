@@ -1,0 +1,62 @@
+{
+  "name": "chaos-coordinator",
+  "version": "1.0.0",
+  "description": "Cross-functional project management and coordination platform",
+  "main": "server/index.js",
+  "scripts": {
+    "dev": "concurrently \"npm run server:dev\" \"npm run client:dev\"",
+    "server:dev": "nodemon server/index.js",
+    "client:dev": "cd client && npm start",
+    "build": "cd client && npm run build",
+    "start": "node server/index.js",
+    "test": "jest",
+    "db:migrate": "knex migrate:latest",
+    "db:seed": "knex seed:run",
+    "db:migrate:sqlite": "knex migrate:latest --knexfile knexfile.sqlite.js",
+    "db:seed:sqlite": "knex seed:run --knexfile knexfile.sqlite.js",
+    "db:reset:sqlite": "knex migrate:rollback --all --knexfile knexfile.sqlite.js && knex migrate:latest --knexfile knexfile.sqlite.js && knex seed:run --knexfile knexfile.sqlite.js"
+  },
+  "dependencies": {
+    "axios": "^1.7.7",
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "express-rate-limit": "^7.1.5",
+    "express-validator": "^7.3.1",
+    "helmet": "^7.1.0",
+    "joi": "^17.11.0",
+    "jsonwebtoken": "^9.0.2",
+    "knex": "^3.0.1",
+    "multer": "^1.4.5-lts.1",
+    "node-cron": "^4.2.1",
+    "nodemailer": "^8.0.4",
+    "pg": "^8.11.3",
+    "sqlite3": "^6.0.1",
+    "uuid": "^13.0.0",
+    "winston": "^3.11.0"
+  },
+  "overrides": {
+    "axios": {
+      "1.14.1": "npm:axios@1.7.7",
+      "0.30.4": "npm:axios@1.7.7"
+    },
+    "plain-crypto-js": {
+      "4.2.1": "npm:plain-crypto-js@4.1.1"
+    }
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "jest": "^29.7.0",
+    "nodemon": "^3.0.2",
+    "supertest": "^6.3.3"
+  },
+  "keywords": [
+    "project-management",
+    "coordination",
+    "cross-functional",
+    "saas"
+  ],
+  "author": "Chaos Coordinator Team",
+  "license": "MIT"
+}
