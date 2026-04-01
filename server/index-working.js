@@ -2,11 +2,16 @@ const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
+const path = require('path');
 const db = require('./database/connection');
-const { users, generateToken, verifyToken } = require('./auth-demo');
+const authRoutes = require('./auth-routes');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+
+console.log('🚀 Server starting...');
+console.log('📁 Working directory:', process.cwd());
+console.log('🗄️ Database path:', path.resolve(process.cwd(), 'database.sqlite'));
 
 // Security middleware
 app.use(helmet());
@@ -38,6 +43,10 @@ app.use('/api/', limiter);
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
+// Auth routes
+const { setupAuthRoutes } = require('./auth-routes');
+setupAuthRoutes(app);
+
 // Health check endpoint
 app.get('/health', (req, res) => {
   res.json({
@@ -54,13 +63,95 @@ app.get('/health', (req, res) => {
   });
 });
 
+// Database test endpoint
+app.get('/api/test-db', async (req, res) => {
+  try {
+    console.log('🔍 Testing database connection...');
+    const result = await db.raw('SELECT 1 as test');
+    console.log('✅ Database connection successful:', result);
+    res.json({ success: true, message: 'Database connection working', result });
+  } catch (error) {
+    console.error('❌ Database connection failed:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // Basic API endpoints for demonstration
 app.get('/api/projects', async (req, res) => {
   try {
+    console.log('🔍 Fetching projects from database...');
     const projects = await db('projects').select('*');
+    console.log('✅ Projects fetched successfully:', projects.length, 'projects');
+    console.log('📊 Sample project data:', projects[0]);
     res.json(projects);
   } catch (error) {
-    res.status(500).json({ error: 'Failed to fetch projects' });
+    console.error('❌ Failed to fetch projects:', error);
+    res.status(500).json({ error: 'Failed to fetch projects', details: error.message });
+  }
+});
+
+// Create new project
+app.post('/api/projects', async (req, res) => {
+  try {
+    console.log('🚀 Creating new project...');
+    
+    // For now, handle JSON data (file uploads will be handled separately)
+    const {
+      project_name,
+      client_name,
+      project_type,
+      sales_owner_id,
+      client_spoc_name,
+      client_spoc_email,
+      client_spoc_mobile,
+      csm_id,
+      pm_id,
+      expected_timeline,
+      integrations_required,
+      notes
+    } = req.body;
+
+    // Validate required fields
+    if (!project_name || !client_name || !sales_owner_id || !csm_id) {
+      return res.status(400).json({ 
+        error: 'Missing required fields: project_name, client_name, sales_owner_id, csm_id' 
+      });
+    }
+
+    // Create project record
+    const [newProject] = await db('projects')
+      .insert({
+        name: project_name,
+        client_name: client_name,
+        stage: project_type === 'POC' ? 'POC' : 'ONBOARDING',
+        sales_owner_id: sales_owner_id,
+        csm_id: csm_id,
+        pm_id: pm_id || null,
+        expected_timeline: expected_timeline || null,
+        integrations_required: integrations_required || null,
+        notes: notes || null,
+        client_spoc_name: client_spoc_name,
+        client_spoc_email: client_spoc_email,
+        client_spoc_mobile: client_spoc_mobile,
+        status: 'active',
+        created_at: new Date(),
+        updated_at: new Date()
+      })
+      .returning('*');
+
+    console.log('✅ Project created successfully:', newProject);
+    
+    res.status(201).json({
+      message: 'Project created successfully',
+      project: newProject
+    });
+
+  } catch (error) {
+    console.error('❌ Failed to create project:', error);
+    res.status(500).json({ 
+      error: 'Failed to create project', 
+      details: error.message 
+    });
   }
 });
 
@@ -70,6 +161,85 @@ app.get('/api/tasks', async (req, res) => {
     res.json(tasks);
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch tasks' });
+  }
+});
+
+// Task action endpoints
+app.patch('/api/tasks/:id/complete', async (req, res) => {
+  try {
+    const { id } = req.params;
+    console.log('🔧 Completing task:', id);
+    
+    const [updatedTask] = await db('tasks')
+      .where('id', id)
+      .update({ 
+        status: 'completed',
+        completed_at: new Date(),
+        updated_at: new Date()
+      })
+      .returning('*');
+    
+    if (!updatedTask) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+    
+    res.json(updatedTask);
+  } catch (error) {
+    console.error('Failed to complete task:', error);
+    res.status(500).json({ error: 'Failed to complete task' });
+  }
+});
+
+app.post('/api/tasks/:id/assign', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { owner_id, assigned_by } = req.body;
+    console.log('🔧 Assigning task:', id, 'to assignee:', owner_id);
+    
+    const [updatedTask] = await db('tasks')
+      .where('id', id)
+      .update({ 
+        assignee_id: owner_id,
+        updated_at: new Date()
+      })
+      .returning('*');
+    
+    if (!updatedTask) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+    
+    res.json({
+      message: 'Task assigned successfully',
+      task: updatedTask
+    });
+  } catch (error) {
+    console.error('Failed to assign task:', error);
+    res.status(500).json({ error: 'Failed to assign task' });
+  }
+});
+
+app.put('/api/tasks/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const updates = req.body;
+    console.log('🔧 Updating task:', id, 'with:', updates);
+    
+    const [updatedTask] = await db('tasks')
+      .where('id', id)
+      .update({ 
+        ...updates,
+        updated_at: new Date()
+      })
+      .returning('*');
+    
+    if (!updatedTask) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+    
+    res.json(updatedTask);
+  } catch (error) {
+    console.error('Failed to update task:', error);
+    res.status(500).json({ error: 'Failed to update task' });
   }
 });
 

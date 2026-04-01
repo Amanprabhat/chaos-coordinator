@@ -1,9 +1,11 @@
 require('dotenv').config();
+const path = require('path');
+
 module.exports = {
   development: {
     client: 'sqlite3',
     connection: {
-      filename: './database.sqlite3'
+      filename: path.join(__dirname, 'database.sqlite')
     },
     migrations: {
       directory: './server/database/migrations',
