@@ -3,6 +3,7 @@ const router = express.Router();
 const db = require('../../database/connection');
 const OwnershipValidator = require('../auth/OwnershipValidator');
 const { body, validationResult } = require('express-validator');
+const { updateProjectStatus } = require('../projects/projectStateEngine');
 
 /**
  * Handover Notes API Routes
@@ -246,6 +247,11 @@ router.put('/:id', [
       created_at: new Date()
     });
 
+    // If checklist was completed, check if all required documents exist for AWAITING_APPROVAL
+    if (updateData.checklist_completed === true && !existingHandover.checklist_completed) {
+      await checkAndTransitionToAwaitingApproval(existingHandover.project_id);
+    }
+
     res.json(updatedHandover);
   } catch (error) {
     console.error('Error updating handover note:', error);
@@ -452,5 +458,111 @@ router.get('/checklist/:projectId/:fromRole/:toRole', async (req, res) => {
     res.status(500).json({ error: 'Failed to get handover checklist' });
   }
 });
+
+// POST /api/handover/documents - Upload documents and check for approval transition
+router.post('/documents', [
+  body('project_id').isInt({ min: 1 }).withMessage('Valid project ID is required'),
+  body('document_type').isIn(['MOM', 'SOW', 'CONTRACT', 'OTHER']).withMessage('Invalid document type'),
+  body('document_name').isString().notEmpty().withMessage('Document name is required'),
+  body('file_path').isString().notEmpty().withMessage('File path is required'),
+  body('uploaded_by').isInt({ min: 1 }).withMessage('Valid uploader user ID is required')
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+
+    const documentData = req.body;
+
+    // Validate project exists
+    const project = await db('projects').where('id', documentData.project_id).first();
+    if (!project) {
+      return res.status(400).json({ error: 'Project not found' });
+    }
+
+    // Validate uploader exists
+    const uploader = await db('users').where('id', documentData.uploaded_by).first();
+    if (!uploader) {
+      return res.status(400).json({ error: 'Uploader user not found' });
+    }
+
+    const [newDocument] = await db('documents')
+      .insert({
+        ...documentData,
+        uploaded_at: new Date(),
+        created_at: new Date(),
+        updated_at: new Date()
+      })
+      .returning('*');
+
+    // Check if all required documents exist for AWAITING_APPROVAL
+    await checkAndTransitionToAwaitingApproval(documentData.project_id);
+
+    // Log document upload
+    await db('activity_log').insert({
+      project_id: documentData.project_id,
+      action: 'document_uploaded',
+      details: JSON.stringify({
+        document_id: newDocument.id,
+        document_type: documentData.document_type,
+        document_name: documentData.document_name,
+        uploaded_by: documentData.uploaded_by,
+        timestamp: new Date()
+      }),
+      created_at: new Date()
+    });
+
+    console.log(`[HANDOVER] Uploaded ${documentData.document_type} document for project ${documentData.project_id}`);
+
+    res.status(201).json(newDocument);
+  } catch (error) {
+    console.error('Error uploading document:', error);
+    res.status(500).json({ error: 'Failed to upload document' });
+  }
+});
+
+/**
+ * Check if all required documents exist and transition to AWAITING_APPROVAL
+ * @param {number} projectId - Project ID
+ */
+async function checkAndTransitionToAwaitingApproval(projectId) {
+  try {
+    // Get project current status
+    const project = await db('projects').where('id', projectId).first();
+    if (!project || project.status !== 'HANDOVER_PENDING') {
+      return;
+    }
+
+    // Check if MOM is uploaded
+    const momDocument = await db('documents')
+      .where('project_id', projectId)
+      .where('document_type', 'MOM')
+      .first();
+
+    if (!momDocument) {
+      console.log(`[HANDOVER] MOM not yet uploaded for project ${projectId}`);
+      return;
+    }
+
+    // Check if handover checklist is completed
+    const handoverCompleted = await db('handover_notes')
+      .where('project_id', projectId)
+      .where('checklist_completed', true)
+      .first();
+
+    if (!handoverCompleted) {
+      console.log(`[HANDOVER] Handover checklist not yet completed for project ${projectId}`);
+      return;
+    }
+
+    // All requirements met - transition to AWAITING_APPROVAL
+    await updateProjectStatus(projectId, 'AWAITING_APPROVAL');
+    console.log(`[HANDOVER] Project ${projectId} transitioned to AWAITING_APPROVAL`);
+
+  } catch (error) {
+    console.error(`[HANDOVER] Error checking approval requirements for project ${projectId}:`, error);
+  }
+}
 
 module.exports = router;

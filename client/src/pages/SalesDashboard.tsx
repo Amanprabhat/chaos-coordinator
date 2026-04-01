@@ -3,19 +3,19 @@ import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Layout, Button, Card, CardHeader, CardBody, CardFooter, StatusBadge, AlertCard } from '../components/ui';
 import InsightsPanel from '../components/layout/InsightsPanel';
+import { useProjectStore } from '../store/projectStore';
 
 interface Project {
   id: number;
-  project_name: string;
+  name: string;
   client_name: string;
-  status: string;
+  status: 'INTAKE_CREATED' | 'MEETING_SCHEDULED' | 'MEETING_COMPLETED' | 'HANDOVER_PENDING' | 'AWAITING_APPROVAL' | 'APPROVED' | 'ACTIVE';
   stage: string;
-  assigned_csm: string;
-  pm: string;
-  meeting_date?: string;
-  sow_uploaded: boolean;
-  mom_uploaded: boolean;
-  handover_completed: boolean;
+  pm_id?: number;
+  sales_owner_id?: number;
+  csm_id?: number;
+  created_at: string;
+  updated_at: string;
 }
 
 interface Meeting {
@@ -28,85 +28,55 @@ interface Meeting {
 
 const SalesDashboard: React.FC = () => {
   const navigate = useNavigate();
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [meetings, setMeetings] = useState<Meeting[]>([]);
-  const [loading, setLoading] = useState(false);
-
-  // Mock data
+  const { projects, loading, error, fetchProjects } = useProjectStore();
+  
+  // Fetch projects on component mount
   useEffect(() => {
-    const mockProjects: Project[] = [
-      {
-        id: 1,
-        project_name: 'E-commerce Platform',
-        client_name: 'Tech Corp',
-        status: 'Handover Pending',
-        stage: 'Handover Pending',
-        assigned_csm: 'Lisa Johnson',
-        pm: 'John Smith',
-        meeting_date: '2024-01-15',
-        sow_uploaded: false,
-        mom_uploaded: true,
-        handover_completed: false,
-      },
-      {
-        id: 2,
-        project_name: 'Mobile App Development',
-        client_name: 'StartupXYZ',
-        status: 'Meeting Scheduled',
-        stage: 'Meeting Scheduled',
-        assigned_csm: 'Sarah Chen',
-        pm: '',
-        meeting_date: '2024-01-18',
-        sow_uploaded: true,
-        mom_uploaded: false,
-        handover_completed: false,
-      },
-    ];
-
-    const mockMeetings: Meeting[] = [
-      {
-        id: 1,
-        project_name: 'E-commerce Platform',
-        meeting_date_time: '2024-01-15 14:00',
-        participants: ['John Smith', 'Lisa Johnson', 'Client Rep'],
-        completed: true,
-      },
-      {
-        id: 2,
-        project_name: 'Mobile App Development',
-        meeting_date_time: '2024-01-18 10:00',
-        participants: ['Sarah Chen', 'Client Rep'],
-        completed: false,
-      },
-    ];
-
-    setProjects(mockProjects);
-    setMeetings(mockMeetings);
-  }, []);
+    const loadProjects = async () => {
+      try {
+        await fetchProjects();
+      } catch (err) {
+        console.error('Failed to load projects:', err);
+      }
+    };
+    
+    loadProjects();
+  }, [fetchProjects]);
 
   const getActionRequiredProjects = () => {
-    return projects.filter(p => 
-      p.status === 'Handover Pending' || 
-      !p.sow_uploaded || 
-      !p.mom_uploaded ||
-      (p.meeting_date && !p.handover_completed)
+    return projects.filter((p: Project) => 
+      p.status === 'HANDOVER_PENDING' || 
+      p.status === 'AWAITING_APPROVAL'
     );
   };
 
-  const getProjectsByStage = (stage: string) => {
-    return projects.filter(p => p.stage === stage);
+  const getProjectsByStatus = (status: string) => {
+    return projects.filter((p: Project) => p.status === status);
   };
-
-  const upcomingMeetings = meetings.filter(m => !m.completed);
-  const completedMeetings = meetings.filter(m => m.completed);
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'Meeting Scheduled': return 'info';
-      case 'Handover Pending': return 'warning';
-      case 'Awaiting Approval': return 'purple';
-      case 'Approved': return 'success';
+      case 'INTAKE_CREATED': return 'neutral';
+      case 'MEETING_SCHEDULED': return 'info';
+      case 'MEETING_COMPLETED': return 'warning';
+      case 'HANDOVER_PENDING': return 'warning';
+      case 'AWAITING_APPROVAL': return 'purple';
+      case 'APPROVED': return 'success';
+      case 'ACTIVE': return 'success';
       default: return 'neutral';
+    }
+  };
+
+  const getStatusLabel = (status: string) => {
+    switch (status) {
+      case 'INTAKE_CREATED': return 'Intake Created';
+      case 'MEETING_SCHEDULED': return 'Meeting Scheduled';
+      case 'MEETING_COMPLETED': return 'Meeting Completed';
+      case 'HANDOVER_PENDING': return 'Handover Pending';
+      case 'AWAITING_APPROVAL': return 'Awaiting Approval';
+      case 'APPROVED': return 'Approved';
+      case 'ACTIVE': return 'Active';
+      default: return status;
     }
   };
 
@@ -164,7 +134,7 @@ const SalesDashboard: React.FC = () => {
       <div className="mb-8">
         <h2 className="text-xl font-semibold text-textPrimary mb-4">Action Required</h2>
         <div className="grid gap-4">
-          {getActionRequiredProjects().map((project) => (
+          {getActionRequiredProjects().map((project: Project) => (
             <motion.div
               key={project.id}
               initial={{ opacity: 0, x: -20 }}
@@ -176,32 +146,28 @@ const SalesDashboard: React.FC = () => {
                 <CardBody>
                   <div className="flex justify-between items-start mb-3">
                     <div>
-                      <h3 className="font-semibold text-textPrimary">{project.project_name}</h3>
+                      <h3 className="font-semibold text-textPrimary">{project.name}</h3>
                       <p className="text-sm text-textSecondary">{project.client_name}</p>
                     </div>
                     <StatusBadge variant={getStatusColor(project.status)}>
-                      {project.status}
+                      {getStatusLabel(project.status)}
                     </StatusBadge>
                   </div>
                   
                   <div className="mb-4">
-                    <p className="text-sm font-medium text-textPrimary mb-2">Missing Items:</p>
+                    <p className="text-sm font-medium text-textPrimary mb-2">Next Action:</p>
                     <ul className="text-sm text-textSecondary space-y-1">
-                      {!project.sow_uploaded && <li>• SOW Document</li>}
-                      {!project.mom_uploaded && <li>• Meeting Minutes (MOM)</li>}
-                      {project.meeting_date && !project.handover_completed && <li>• Handover Completion</li>}
+                      {project.status === 'HANDOVER_PENDING' && <li>• Complete handover checklist</li>}
+                      {project.status === 'AWAITING_APPROVAL' && <li>• Waiting for CTO approval</li>}
                     </ul>
                   </div>
                   
                   <div className="flex space-x-2">
-                    {!project.sow_uploaded && (
-                      <Button variant="secondary" size="sm">Upload SOW</Button>
+                    {project.status === 'HANDOVER_PENDING' && (
+                      <Button variant="primary" size="sm" onClick={() => navigate(`/project/${project.id}/handover`)}>Complete Handover</Button>
                     )}
-                    {!project.mom_uploaded && (
-                      <Button variant="secondary" size="sm">Upload MOM</Button>
-                    )}
-                    {project.meeting_date && !project.handover_completed && (
-                      <Button variant="primary" size="sm">Complete Handover</Button>
+                    {project.status === 'AWAITING_APPROVAL' && (
+                      <Button variant="secondary" size="sm" disabled>Awaiting Approval</Button>
                     )}
                   </div>
                 </CardBody>
@@ -211,78 +177,19 @@ const SalesDashboard: React.FC = () => {
         </div>
       </div>
 
-      {/* Meetings */}
+      {/* Status-based Project Sections */}
       <div className="mb-8">
-        <h2 className="text-xl font-semibold text-textPrimary mb-4">Meetings</h2>
+        <h2 className="text-xl font-semibold text-textPrimary mb-4">Projects by Status</h2>
         
-        {/* Upcoming Meetings */}
-        <div className="mb-6">
-          <h3 className="text-lg font-medium text-textPrimary mb-3">Upcoming Meetings</h3>
-          <div className="grid gap-3">
-            {upcomingMeetings.map((meeting) => (
-              <motion.div
-                key={meeting.id}
-                initial={{ opacity: 0, x: -20 }}
-                animate={{ opacity: 1, x: 0 }}
-                whileHover={{ scale: 1.01 }}
-                className="transition-all duration-200"
-              >
-                <Card>
-                  <CardBody>
-                    <h4 className="font-medium text-textPrimary">{meeting.project_name}</h4>
-                    <p className="text-sm text-textSecondary">{meeting.meeting_date_time}</p>
-                    <p className="text-xs text-textTertiary mt-1">
-                      Participants: {meeting.participants.join(', ')}
-                    </p>
-                  </CardBody>
-                </Card>
-              </motion.div>
-            ))}
-          </div>
-        </div>
-
-        {/* Completed Meetings */}
-        <div>
-          <h3 className="text-lg font-medium text-textPrimary mb-3">Completed Meetings</h3>
-          <div className="grid gap-3">
-            {completedMeetings.map((meeting) => (
-              <motion.div
-                key={meeting.id}
-                initial={{ opacity: 0, x: -20 }}
-                animate={{ opacity: 1, x: 0 }}
-                whileHover={{ scale: 1.01 }}
-                className="transition-all duration-200"
-              >
-                <Card>
-                  <CardBody>
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <h4 className="font-medium text-textPrimary">{meeting.project_name}</h4>
-                        <p className="text-sm text-textSecondary">{meeting.meeting_date_time}</p>
-                      </div>
-                      <StatusBadge variant="warning">Awaiting Handover</StatusBadge>
-                    </div>
-                  </CardBody>
-                </Card>
-              </motion.div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* My Projects */}
-      <div className="mb-8">
-        <h2 className="text-xl font-semibold text-textPrimary mb-4">My Projects</h2>
-        
-        {['POC', 'Meeting Scheduled', 'Handover Pending', 'Awaiting Approval'].map((stage) => {
-          const stageProjects = getProjectsByStage(stage);
-          if (stageProjects.length === 0) return null;
+        {['INTAKE_CREATED', 'MEETING_SCHEDULED', 'MEETING_COMPLETED', 'HANDOVER_PENDING', 'AWAITING_APPROVAL'].map((status) => {
+          const statusProjects = getProjectsByStatus(status);
+          if (statusProjects.length === 0) return null;
           
           return (
-            <div key={stage} className="mb-6">
-              <h3 className="text-lg font-medium text-textPrimary mb-3">{stage}</h3>
+            <div key={status} className="mb-6">
+              <h3 className="text-lg font-medium text-textPrimary mb-3">{getStatusLabel(status)}</h3>
               <div className="grid gap-3">
-                {stageProjects.map((project) => (
+                {statusProjects.map((project: Project) => (
                   <motion.div
                     key={project.id}
                     initial={{ opacity: 0, x: -20 }}
@@ -296,15 +203,14 @@ const SalesDashboard: React.FC = () => {
                       <CardBody>
                         <div className="flex justify-between items-start">
                           <div>
-                            <h4 className="font-medium text-textPrimary">{project.project_name}</h4>
+                            <h4 className="font-medium text-textPrimary">{project.name}</h4>
                             <p className="text-sm text-textSecondary">{project.client_name}</p>
                             <div className="mt-2 text-xs text-textTertiary">
-                              <p>CSM: {project.assigned_csm}</p>
-                              {project.pm && <p>PM: {project.pm}</p>}
+                              <p>Created: {new Date(project.created_at).toLocaleDateString()}</p>
                             </div>
                           </div>
-                          <StatusBadge variant={getStatusColor(project.stage)}>
-                            {project.stage}
+                          <StatusBadge variant={getStatusColor(project.status)}>
+                            {getStatusLabel(project.status)}
                           </StatusBadge>
                         </div>
                       </CardBody>

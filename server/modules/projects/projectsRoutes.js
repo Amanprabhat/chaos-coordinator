@@ -4,6 +4,7 @@ const db = require('../../database/connection');
 const OwnershipValidator = require('../auth/OwnershipValidator');
 const LifecycleEngine = require('../lifecycle/LifecycleEngine');
 const { body, validationResult } = require('express-validator');
+const { updateProjectStatus, checkMeetingCompletion } = require('./projectStateEngine');
 
 /**
  * Projects API Routes
@@ -68,6 +69,9 @@ router.get('/:id', async (req, res) => {
       return res.status(404).json({ error: 'Project not found' });
     }
 
+    // Check for auto meeting completion
+    await checkMeetingCompletion(project);
+
     // Get project statistics
     const stats = await getProjectStats(id);
     project.stats = stats;
@@ -112,7 +116,7 @@ router.post('/', [
       .insert({
         ...projectData,
         current_stage_id: leadStage.id,
-        status: projectData.status || 'active',
+        status: 'INTAKE_CREATED', // Always start with INTAKE_CREATED
         created_at: new Date(),
         updated_at: new Date()
       })
@@ -128,12 +132,12 @@ router.post('/', [
   }
 });
 
-// PUT /api/projects/:id - Update project
+// PUT /api/projects/:id - Update project (no direct status updates)
 router.put('/:id', [
   body('name').optional().notEmpty().withMessage('Project name cannot be empty'),
   body('client_name').optional().notEmpty().withMessage('Client name cannot be empty'),
-  body('owner_id').optional().isInt({ min: 1 }).withMessage('Valid owner ID is required'),
-  body('status').optional().isIn(['active', 'completed', 'on_hold', 'cancelled']).withMessage('Invalid status')
+  body('owner_id').optional().isInt({ min: 1 }).withMessage('Valid owner ID is required')
+  // Removed status validation - status updates must go through state engine
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -155,6 +159,9 @@ router.put('/:id', [
       OwnershipValidator.validateProjectOwnership(updateData);
       await OwnershipValidator.validateUserExists(updateData.owner_id, db);
     }
+
+    // Remove status from update data - status updates must use state engine
+    delete updateData.status;
 
     const [updatedProject] = await db('projects')
       .where('id', id)
@@ -242,6 +249,105 @@ router.get('/:id/can-transition', async (req, res) => {
       return res.status(404).json({ error: error.message });
     }
     res.status(500).json({ error: 'Failed to check transition eligibility' });
+  }
+});
+
+// POST /api/projects/:id/approve - Approve project (CTO only)
+router.post('/:id/approve', [
+  body('approved_by').isInt({ min: 1 }).withMessage('Valid user ID is required'),
+  body('approval_notes').optional().isString()
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+
+    const { id } = req.params;
+    const { approved_by, approval_notes } = req.body;
+
+    // Validate user exists and is CTO
+    const user = await db('users').where('id', approved_by).first();
+    if (!user) {
+      return res.status(400).json({ error: 'User not found' });
+    }
+
+    if (user.role !== 'Admin' && user.role !== 'CTO') {
+      return res.status(403).json({ error: 'Only CTO or Admin can approve projects' });
+    }
+
+    // Update to APPROVED then ACTIVE
+    await updateProjectStatus(id, 'APPROVED', approved_by);
+    const updatedProject = await updateProjectStatus(id, 'ACTIVE', approved_by);
+
+    // Log approval
+    await db('activity_log').insert({
+      project_id: id,
+      action: 'project_approved',
+      details: JSON.stringify({
+        approved_by: approved_by,
+        approval_notes: approval_notes,
+        timestamp: new Date()
+      }),
+      created_at: new Date()
+    });
+
+    res.json({
+      message: 'Project approved and activated successfully',
+      project: updatedProject
+    });
+  } catch (error) {
+    console.error('Error approving project:', error);
+    res.status(500).json({ error: 'Failed to approve project' });
+  }
+});
+
+// POST /api/projects/:id/reject - Reject project (send back to handover)
+router.post('/:id/reject', [
+  body('rejected_by').isInt({ min: 1 }).withMessage('Valid user ID is required'),
+  body('rejection_reason').isString().withMessage('Rejection reason is required')
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+
+    const { id } = req.params;
+    const { rejected_by, rejection_reason } = req.body;
+
+    // Validate user exists and is CTO
+    const user = await db('users').where('id', rejected_by).first();
+    if (!user) {
+      return res.status(400).json({ error: 'User not found' });
+    }
+
+    if (user.role !== 'Admin' && user.role !== 'CTO') {
+      return res.status(403).json({ error: 'Only CTO or Admin can reject projects' });
+    }
+
+    // Update back to HANDOVER_PENDING
+    const updatedProject = await updateProjectStatus(id, 'HANDOVER_PENDING', rejected_by);
+
+    // Log rejection
+    await db('activity_log').insert({
+      project_id: id,
+      action: 'project_rejected',
+      details: JSON.stringify({
+        rejected_by: rejected_by,
+        rejection_reason: rejection_reason,
+        timestamp: new Date()
+      }),
+      created_at: new Date()
+    });
+
+    res.json({
+      message: 'Project rejected and sent back to handover',
+      project: updatedProject
+    });
+  } catch (error) {
+    console.error('Error rejecting project:', error);
+    res.status(500).json({ error: 'Failed to reject project' });
   }
 });
 
