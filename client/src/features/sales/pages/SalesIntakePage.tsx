@@ -22,14 +22,19 @@ interface FormData {
   client_spoc: ClientSpoc;
   csm_id: number;
   pm_id?: number;
-  product_team_ids: number[];
+  product_manager_id?: number;
+  deployment_region: string;
+  deployment_type: string;
+  sso_required: boolean;
   meeting_done: boolean;
+  meeting_date?: string;
   mom_upload?: File;
   documents_upload?: File;
   expected_timeline: string;
   integrations_required: string;
   notes: string;
   sow_upload?: File;
+  handover_meeting_required: boolean;
 }
 
 const SalesIntakePage: React.FC = () => {
@@ -51,11 +56,16 @@ const SalesIntakePage: React.FC = () => {
     },
     csm_id: 0,
     pm_id: 0,
-    product_team_ids: [],
+    product_manager_id: 0,
+    deployment_region: '',
+    deployment_type: '',
+    sso_required: false,
     meeting_done: false,
+    meeting_date: '',
     expected_timeline: '',
     integrations_required: '',
-    notes: ''
+    notes: '',
+    handover_meeting_required: false
   });
 
   // Fetch users for team assignment
@@ -64,9 +74,9 @@ const SalesIntakePage: React.FC = () => {
       // Mock users for now - in production, this would be an API call
       const mockUsers: User[] = [
         { id: 2, name: 'Sarah CSM', email: 'sarah@demo.com', role: 'CSM' },
-        { id: 3, name: 'Mike PM', email: 'mike@demo.com', role: 'PM' },
+        { id: 3, name: 'Mike Project Manager', email: 'mike@demo.com', role: 'PM' },
         { id: 4, name: 'Lisa CSM', email: 'lisa@demo.com', role: 'CSM' },
-        { id: 5, name: 'John PM', email: 'john@demo.com', role: 'PM' },
+        { id: 5, name: 'John Project Manager', email: 'john@demo.com', role: 'PM' },
         { id: 6, name: 'Emma Product', email: 'emma@demo.com', role: 'PRODUCT' },
         { id: 7, name: 'Alex Product', email: 'alex@demo.com', role: 'PRODUCT' }
       ];
@@ -106,10 +116,29 @@ const SalesIntakePage: React.FC = () => {
   };
 
   const validateStep = (step: number): boolean => {
+    // Email validation regex
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    // Mobile number validation (numeric only, 10-15 digits)
+    const mobileRegex = /^\d{10,15}$/;
+
     switch (step) {
       case 1:
-        return formData.project_type === 'POC' || formData.project_type === 'Actual Project';
+        return (
+          formData.project_type === 'POC' || formData.project_type === 'Actual Project' &&
+          formData.deployment_region.trim() !== '' &&
+          formData.deployment_type.trim() !== ''
+        );
       case 2:
+        // Validate email format
+        if (!emailRegex.test(formData.client_spoc.email.trim())) {
+          setError('Please enter a valid email address');
+          return false;
+        }
+        // Validate mobile number (numeric only)
+        if (!mobileRegex.test(formData.client_spoc.mobile.trim())) {
+          setError('Mobile number must contain only digits (10-15 digits)');
+          return false;
+        }
         return (
           formData.project_name.trim() !== '' &&
           formData.client_name.trim() !== '' &&
@@ -120,6 +149,11 @@ const SalesIntakePage: React.FC = () => {
       case 3:
         return formData.csm_id > 0;
       case 4:
+        // Make MoM and SOW mandatory in step 4
+        if (!formData.mom_upload) {
+          setError('Meeting Minutes (MoM) document is required');
+          return false;
+        }
         if (formData.project_type === 'Actual Project' && !formData.sow_upload) {
           setError('SOW document is required for Actual Projects');
           return false;
@@ -145,6 +179,42 @@ const SalesIntakePage: React.FC = () => {
     if (currentStep > 1) {
       setCurrentStep(currentStep - 1);
     }
+  };
+
+  const scheduleMeeting = async () => {
+    const selectedCSM = users.find(u => u.id === formData.csm_id);
+    const selectedPM = formData.pm_id ? users.find(u => u.id === formData.pm_id) : null;
+    const selectedProductManager = formData.product_manager_id ? users.find(u => u.id === formData.product_manager_id) : null;
+    
+    const attendees = [
+      selectedCSM?.email,
+      selectedPM?.email,
+      selectedProductManager?.email,
+      formData.client_spoc.email
+    ].filter(Boolean).join(';');
+
+    const subject = encodeURIComponent(`Project Kickoff: ${formData.project_name}`);
+    const body = encodeURIComponent(`
+Project: ${formData.project_name}
+Client: ${formData.client_name}
+CSM: ${selectedCSM?.name}
+${selectedPM ? `Project Manager: ${selectedPM.name}` : ''}
+${selectedProductManager ? `Product Manager: ${selectedProductManager.name}` : ''}
+
+Please join the Teams meeting to discuss project requirements and next steps.
+    `);
+
+    const teamsUrl = `https://teams.microsoft.com/l/meeting/new?subject=${subject}&attendees=${attendees}&content=${body}`;
+    
+    // Log meeting scheduling attempt for security tracking
+    console.log('🔒 MEETING SCHEDULING ATTEMPT:', {
+      project: formData.project_name,
+      attendees: attendees.split(';'),
+      timestamp: new Date().toISOString(),
+      user: user?.email
+    });
+    
+    window.open(teamsUrl, '_blank');
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -178,9 +248,10 @@ const SalesIntakePage: React.FC = () => {
       // Team assignments
       submitData.append('csm_id', String(formData.csm_id));
       if (formData.pm_id) submitData.append('pm_id', String(formData.pm_id));
-      if (formData.product_team_ids.length > 0) {
-        submitData.append('product_team_ids', JSON.stringify(formData.product_team_ids));
-      }
+      if (formData.product_manager_id) submitData.append('product_manager_id', String(formData.product_manager_id));
+      submitData.append('deployment_region', formData.deployment_region);
+      submitData.append('deployment_type', formData.deployment_type);
+      submitData.append('sso_required', String(formData.sso_required));
       
       // Handover details
       submitData.append('meeting_done', String(formData.meeting_done));
@@ -239,9 +310,27 @@ const SalesIntakePage: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50 relative overflow-hidden">
+      {/* Animated Background */}
+      <div className="absolute inset-0 overflow-hidden">
+        {[...Array(20)].map((_, i) => (
+          <div
+            key={i}
+            className="absolute rounded-full bg-gradient-to-r from-blue-200 to-purple-200 opacity-20 animate-pulse"
+            style={{
+              width: Math.random() * 200 + 50 + 'px',
+              height: Math.random() * 200 + 50 + 'px',
+              left: Math.random() * 100 + '%',
+              top: Math.random() * 100 + '%',
+              animationDelay: Math.random() * 5 + 's',
+              animationDuration: Math.random() * 10 + 10 + 's'
+            }}
+          />
+        ))}
+      </div>
+
       {/* Header */}
-      <div className="bg-white shadow-sm border-b">
+      <div className="relative z-10 bg-white/80 backdrop-blur-sm shadow-sm border-b">
         <div className="max-w-4xl mx-auto px-4 py-6">
           <div className="flex items-center justify-between">
             <div>
@@ -259,7 +348,7 @@ const SalesIntakePage: React.FC = () => {
       </div>
 
       {/* Progress Indicator */}
-      <div className="bg-white border-b">
+      <div className="relative z-10 bg-white/60 backdrop-blur-sm border-b">
         <div className="max-w-4xl mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
             {[1, 2, 3, 4].map((step) => (
@@ -293,9 +382,9 @@ const SalesIntakePage: React.FC = () => {
       </div>
 
       {/* Form Content */}
-      <div className="max-w-4xl mx-auto px-4 py-8">
+      <div className="relative z-10 max-w-4xl mx-auto px-4 py-8">
         {error && (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
+          <div className="bg-red-50/90 backdrop-blur-sm border border-red-200 rounded-lg p-4 mb-6">
             <p className="text-red-800">{error}</p>
           </div>
         )}
@@ -303,29 +392,79 @@ const SalesIntakePage: React.FC = () => {
         <form onSubmit={handleSubmit} className="space-y-8">
           {/* Step 1: Project Type */}
           {currentStep === 1 && (
-            <div className="bg-white rounded-lg shadow p-6">
+            <div className="bg-white/90 backdrop-blur-sm rounded-lg shadow-lg p-6">
               <h2 className="text-xl font-semibold text-gray-900 mb-4">Project Type</h2>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Select Project Type *
-                </label>
-                <select
-                  value={formData.project_type}
-                  onChange={(e) => handleInputChange('project_type', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  required
-                >
-                  <option value="">Select type...</option>
-                  <option value="POC">POC</option>
-                  <option value="Actual Project">Actual Project</option>
-                </select>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Select Project Type *
+                  </label>
+                  <select
+                    value={formData.project_type}
+                    onChange={(e) => handleInputChange('project_type', e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    required
+                  >
+                    <option value="">Select type...</option>
+                    <option value="POC">POC</option>
+                    <option value="Actual Project">Actual Project</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Deployment Region *
+                  </label>
+                  <select
+                    value={formData.deployment_region}
+                    onChange={(e) => handleInputChange('deployment_region', e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    required
+                  >
+                    <option value="">Select region...</option>
+                    <option value="US-East">US-East</option>
+                    <option value="US-West">US-West</option>
+                    <option value="Europe">Europe</option>
+                    <option value="Asia-Pacific">Asia-Pacific</option>
+                    <option value="Other">Other</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Deployment Type *
+                  </label>
+                  <select
+                    value={formData.deployment_type}
+                    onChange={(e) => handleInputChange('deployment_type', e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    required
+                  >
+                    <option value="">Select type...</option>
+                    <option value="Cloud">Cloud</option>
+                    <option value="On-Premise">On-Premise</option>
+                    <option value="Hybrid">Hybrid</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="flex items-center">
+                    <input
+                      type="checkbox"
+                      checked={formData.sso_required}
+                      onChange={(e) => handleInputChange('sso_required', e.target.checked)}
+                      className="mr-2"
+                    />
+                    <span className="text-sm font-medium text-gray-700">SSO Required</span>
+                  </label>
+                </div>
               </div>
             </div>
           )}
 
           {/* Step 2: Basic Info */}
           {currentStep === 2 && (
-            <div className="bg-white rounded-lg shadow p-6">
+            <div className="bg-white/90 backdrop-blur-sm rounded-lg shadow-lg p-6">
               <h2 className="text-xl font-semibold text-gray-900 mb-4">Basic Information</h2>
               <div className="space-y-4">
                 <div>
@@ -408,7 +547,7 @@ const SalesIntakePage: React.FC = () => {
 
           {/* Step 3: Team Assignment */}
           {currentStep === 3 && (
-            <div className="bg-white rounded-lg shadow p-6">
+            <div className="bg-white/90 backdrop-blur-sm rounded-lg shadow-lg p-6">
               <h2 className="text-xl font-semibold text-gray-900 mb-4">Team Assignment</h2>
               <div className="space-y-4">
                 <div>
@@ -432,14 +571,14 @@ const SalesIntakePage: React.FC = () => {
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    PM Assignment (Optional)
+                    Project Manager Assignment (Optional)
                   </label>
                   <select
                     value={formData.pm_id}
                     onChange={(e) => handleInputChange('pm_id', parseInt(e.target.value))}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
-                    <option value="">Select PM...</option>
+                    <option value="">Select Project Manager...</option>
                     {pms.map(pm => (
                       <option key={pm.id} value={pm.id}>
                         {pm.name}
@@ -450,27 +589,20 @@ const SalesIntakePage: React.FC = () => {
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Product Team (Optional)
+                    Product Manager (Optional)
                   </label>
-                  <div className="space-y-2">
+                  <select
+                    value={formData.product_manager_id || ''}
+                    onChange={(e) => handleInputChange('product_manager_id', e.target.value ? parseInt(e.target.value) : 0)}
+                    className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                  >
+                    <option value="">Select Product Manager</option>
                     {productTeam.map(member => (
-                      <label key={member.id} className="flex items-center">
-                        <input
-                          type="checkbox"
-                          checked={formData.product_team_ids.includes(member.id)}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              handleInputChange('product_team_ids', [...formData.product_team_ids, member.id]);
-                            } else {
-                              handleInputChange('product_team_ids', formData.product_team_ids.filter(id => id !== member.id));
-                            }
-                          }}
-                          className="mr-2"
-                        />
+                      <option key={member.id} value={member.id}>
                         {member.name}
-                      </label>
+                      </option>
                     ))}
-                  </div>
+                  </select>
                 </div>
               </div>
             </div>
@@ -478,7 +610,7 @@ const SalesIntakePage: React.FC = () => {
 
           {/* Step 4: Handover Details */}
           {currentStep === 4 && (
-            <div className="bg-white rounded-lg shadow p-6">
+            <div className="bg-white/90 backdrop-blur-sm rounded-lg shadow-lg p-6">
               <h2 className="text-xl font-semibold text-gray-900 mb-4">Handover Details</h2>
               <div className="space-y-4">
                 <div>
@@ -493,15 +625,46 @@ const SalesIntakePage: React.FC = () => {
                   </label>
                 </div>
 
+                {formData.meeting_done && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Meeting Date & Time
+                    </label>
+                    <input
+                      type="datetime-local"
+                      value={formData.meeting_date || ''}
+                      onChange={(e) => handleInputChange('meeting_date', e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                )}
+
+                {/* Conditional handover meeting checkbox */}
+                {formData.meeting_done && formData.meeting_date && new Date(formData.meeting_date) < new Date() && (
+                  <div>
+                    <label className="flex items-center">
+                      <input
+                        type="checkbox"
+                        checked={formData.handover_meeting_required}
+                        onChange={(e) => handleInputChange('handover_meeting_required', e.target.checked)}
+                        className="mr-2"
+                      />
+                      <span className="text-sm font-medium text-gray-700">Schedule additional handover meeting</span>
+                    </label>
+                    <p className="text-xs text-gray-500 mt-1">Meeting date has passed - you may want to schedule a follow-up</p>
+                  </div>
+                )}
+
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Meeting Minutes (Optional)
+                    Meeting Minutes (MoM) *
                   </label>
                   <input
                     type="file"
                     onChange={(e) => handleFileChange('mom_upload', e.target.files?.[0])}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                     accept=".pdf,.doc,.docx"
+                    required
                   />
                   {formData.mom_upload && (
                     <p className="text-sm text-gray-600 mt-1">Selected: {formData.mom_upload.name}</p>
@@ -594,23 +757,35 @@ const SalesIntakePage: React.FC = () => {
               Back
             </button>
 
-            {currentStep < 4 ? (
-              <button
-                type="button"
-                onClick={handleNext}
-                className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-              >
-                Next
-              </button>
-            ) : (
-              <button
-                type="submit"
-                disabled={loading}
-                className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
-              >
-                {loading ? 'Creating Project...' : 'Create Project'}
-              </button>
-            )}
+            <div className="flex space-x-3">
+              {currentStep === 3 && (
+                <button
+                  type="button"
+                  onClick={scheduleMeeting}
+                  className="px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
+                >
+                  Schedule Meeting
+                </button>
+              )}
+
+              {currentStep < 4 ? (
+                <button
+                  type="button"
+                  onClick={handleNext}
+                  className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                >
+                  {currentStep === 3 ? 'Save' : 'Next'}
+                </button>
+              ) : (
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
+                >
+                  {loading ? 'Creating Project...' : 'Create Project'}
+                </button>
+              )}
+            </div>
           </div>
         </form>
       </div>
