@@ -43,13 +43,13 @@ async function updateProjectStatus(projectId, nextStatus, userId = null) {
     await validateTransition(project, nextStatus);
 
     // Update status
-    const [updatedProject] = await db('projects')
+    await db('projects')
       .where('id', projectId)
       .update({
         status: nextStatus,
         updated_at: new Date()
-      })
-      .returning('*');
+      });
+    const updatedProject = await db('projects').where('id', projectId).first();
 
     // Log the change
     await logStatusChange(projectId, project.status, nextStatus, userId);

@@ -10,11 +10,12 @@
     "build": "cd client && npm run build",
     "start": "node server/index.js",
     "test": "jest",
-    "db:migrate": "knex migrate:latest",
-    "db:seed": "knex seed:run",
-    "db:migrate:sqlite": "knex migrate:latest --knexfile knexfile.sqlite.js",
-    "db:seed:sqlite": "knex seed:run --knexfile knexfile.sqlite.js",
-    "db:reset:sqlite": "knex migrate:rollback --all --knexfile knexfile.sqlite.js && knex migrate:latest --knexfile knexfile.sqlite.js && knex seed:run --knexfile knexfile.sqlite.js"
+    "db:migrate": "knex migrate:latest --knexfile knexfile.js",
+    "db:migrate:prod": "NODE_ENV=production knex migrate:latest --knexfile knexfile.js",
+    "db:seed": "knex seed:run --knexfile knexfile.js",
+    "db:seed:prod": "NODE_ENV=production knex seed:run --knexfile knexfile.js",
+    "db:rollback": "knex migrate:rollback --knexfile knexfile.js",
+    "db:reset": "knex migrate:rollback --all --knexfile knexfile.js && knex migrate:latest --knexfile knexfile.js && knex seed:run --knexfile knexfile.js"
   },
   "dependencies": {
     "axios": "^1.7.7",

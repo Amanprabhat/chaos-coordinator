@@ -162,14 +162,14 @@ router.post('/', [
       });
     }
 
-    const [newHandover] = await db('handover_notes')
+    const [newHandoverId] = await db('handover_notes')
       .insert({
         ...handoverData,
         checklist_completed: false,
         created_at: new Date(),
         updated_at: new Date()
-      })
-      .returning('*');
+      });
+    const newHandover = await db('handover_notes').where('id', newHandoverId).first();
 
     // Log handover submission
     await db('activity_log').insert({
@@ -226,13 +226,13 @@ router.put('/:id', [
       return res.status(400).json({ error: 'Notes are required when completing handover checklist' });
     }
 
-    const [updatedHandover] = await db('handover_notes')
+    await db('handover_notes')
       .where('id', id)
       .update({
         ...updateData,
         updated_at: new Date()
-      })
-      .returning('*');
+      });
+    const updatedHandover = await db('handover_notes').where('id', id).first();
 
     // Log handover update
     await db('activity_log').insert({
@@ -293,14 +293,14 @@ router.post('/:id/approve', [
       return res.status(400).json({ error: 'Cannot approve handover until checklist is completed' });
     }
 
-    const [updatedHandover] = await db('handover_notes')
+    await db('handover_notes')
       .where('id', id)
       .update({
         approved_by: approved_by,
         notes: approval_notes ? `${existingHandover.notes || ''}\n\nApproval Notes:\n${approval_notes}` : existingHandover.notes,
         updated_at: new Date()
-      })
-      .returning('*');
+      });
+    const updatedHandover = await db('handover_notes').where('id', id).first();
 
     // Log handover approval
     await db('activity_log').insert({
@@ -437,7 +437,7 @@ router.get('/checklist/:projectId/:fromRole/:toRole', async (req, res) => {
         return res.status(404).json({ error: 'Project not found' });
       }
 
-      const [newHandover] = await db('handover_notes')
+      const [newHandoverId] = await db('handover_notes')
         .insert({
           project_id: projectId,
           from_role: fromRole,
@@ -446,10 +446,9 @@ router.get('/checklist/:projectId/:fromRole/:toRole', async (req, res) => {
           notes: `Handover checklist for ${project.name} (${project.client_name})\n\nFrom: ${fromRole}\nTo: ${toRole}\n\nChecklist Items:\n- [ ] Review project documentation\n- [ ] Confirm requirements understanding\n- [ ] Discuss timeline and milestones\n- [ ] Identify potential risks\n- [ ] Agree on communication plan\n- [ ] Transfer relevant files and access\n- [ ] Schedule follow-up meeting`,
           created_at: new Date(),
           updated_at: new Date()
-        })
-        .returning('*');
+        });
 
-      handover = newHandover;
+      handover = await db('handover_notes').where('id', newHandoverId).first();
     }
 
     res.json(handover);
@@ -487,14 +486,14 @@ router.post('/documents', [
       return res.status(400).json({ error: 'Uploader user not found' });
     }
 
-    const [newDocument] = await db('documents')
+    const [newDocId] = await db('documents')
       .insert({
         ...documentData,
         uploaded_at: new Date(),
         created_at: new Date(),
         updated_at: new Date()
-      })
-      .returning('*');
+      });
+    const newDocument = await db('documents').where('id', newDocId).first();
 
     // Check if all required documents exist for AWAITING_APPROVAL
     await checkAndTransitionToAwaitingApproval(documentData.project_id);

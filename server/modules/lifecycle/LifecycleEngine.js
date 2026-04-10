@@ -1,4 +1,4 @@
-const db = require('../database/connection');
+const db = require('../../database/connection');
 const { ValidationError } = require('joi');
 
 /**
@@ -237,13 +237,13 @@ class LifecycleEngine {
       }
 
       // Perform the transition
-      const [updatedProject] = await db('projects')
+      await db('projects')
         .where('id', projectId)
         .update({
           current_stage_id: nextStage.id,
           updated_at: new Date()
-        })
-        .returning('*');
+        });
+      const updatedProject = await db('projects').where('id', projectId).first();
 
       // Log the transition
       await this.logStageTransition(projectId, currentStage.id, nextStage.id, requestedBy);

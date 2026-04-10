@@ -116,15 +116,15 @@ router.post('/', [
       return res.status(400).json({ error: 'Meeting time must be in the future' });
     }
 
-    const [newMeeting] = await db('meetings')
+    const [newId] = await db('meetings')
       .insert({
         ...meetingData,
         status: 'scheduled',
         attendees: meetingData.attendees ? JSON.stringify(meetingData.attendees) : null,
         created_at: new Date(),
         updated_at: new Date()
-      })
-      .returning('*');
+      });
+    const newMeeting = await db('meetings').where('id', newId).first();
 
     // Update project status to MEETING_SCHEDULED
     await updateProjectStatus(meetingData.project_id, 'MEETING_SCHEDULED', meetingData.created_by);
@@ -180,13 +180,13 @@ router.put('/:id', [
       updateData.attendees = JSON.stringify(updateData.attendees);
     }
 
-    const [updatedMeeting] = await db('meetings')
+    await db('meetings')
       .where('id', id)
       .update({
         ...updateData,
         updated_at: new Date()
-      })
-      .returning('*');
+      });
+    const updatedMeeting = await db('meetings').where('id', id).first();
 
     // If meeting is being completed, update project status
     if (updateData.status === 'completed' && existingMeeting.status !== 'completed') {
@@ -247,7 +247,7 @@ router.post('/:id/complete', [
       return res.status(400).json({ error: 'Cannot complete meeting before scheduled time' });
     }
 
-    const [updatedMeeting] = await db('meetings')
+    await db('meetings')
       .where('id', id)
       .update({
         status: 'completed',
@@ -256,8 +256,8 @@ router.post('/:id/complete', [
         attendees_present: attendees_present ? JSON.stringify(attendees_present) : null,
         completed_at: new Date(),
         updated_at: new Date()
-      })
-      .returning('*');
+      });
+    const updatedMeeting = await db('meetings').where('id', id).first();
 
     // Update project status to MEETING_COMPLETED
     await updateProjectStatus(existingMeeting.project_id, 'MEETING_COMPLETED', completed_by);

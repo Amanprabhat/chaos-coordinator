@@ -3,13 +3,17 @@ const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const db = require('./database/connection');
+const { setupAuthRoutes } = require('./auth-routes');
 
 // Import modular routes
-const dashboardRoutes = require('./modules/dashboard/dashboardRoutes');
-const projectsRoutes = require('./modules/projects/projectsRoutes');
-const tasksRoutes = require('./modules/tasks/tasksRoutes');
-const milestonesRoutes = require('./modules/milestones/milestonesRoutes');
-const handoverRoutes = require('./modules/handover/handoverRoutes');
+const dashboardRoutes      = require('./modules/dashboard/dashboardRoutes');
+const projectsRoutes       = require('./modules/projects/projectsRoutes');
+const tasksRoutes          = require('./modules/tasks/tasksRoutes');
+const milestonesRoutes     = require('./modules/milestones/milestonesRoutes');
+const handoverRoutes       = require('./modules/handover/handoverRoutes');
+const notificationsRoutes  = require('./modules/notifications/notificationsRoutes');
+const { startNudgeCron }   = require('./modules/notifications/nudgeJob');
+const path                 = require('path');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -33,6 +37,9 @@ app.use('/api/', limiter);
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
+// Serve uploaded files (SOW documents etc.)
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
 // Health check endpoint
 app.get('/health', (req, res) => {
   res.json({
@@ -43,12 +50,32 @@ app.get('/health', (req, res) => {
   });
 });
 
+// Auth routes (must come before other API routes)
+setupAuthRoutes(app);
+
+// Users endpoint — fetch team members by role for intake form
+app.get('/api/users', async (req, res) => {
+  try {
+    const { role } = req.query;
+    let query = db('users').select('id', 'name', 'email', 'role', 'department').where('is_active', true);
+    if (role) {
+      query = query.where('role', role);
+    }
+    const users = await query.orderBy('name');
+    res.json(users);
+  } catch (error) {
+    console.error('Error fetching users:', error);
+    res.status(500).json({ error: 'Failed to fetch users' });
+  }
+});
+
 // API Routes
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/projects', projectsRoutes);
 app.use('/api/tasks', tasksRoutes);
 app.use('/api/milestones', milestonesRoutes);
 app.use('/api/handover', handoverRoutes);
+app.use('/api/notifications', notificationsRoutes);
 
 // API Documentation endpoint
 app.get('/api', (req, res) => {
@@ -181,6 +208,7 @@ process.on('SIGINT', async () => {
 // Start server
 async function startServer() {
   await testDatabaseConnection();
+  startNudgeCron();
   
   app.listen(PORT, () => {
     console.log(`🚀 Chaos Coordinator API Server running on port ${PORT}`);

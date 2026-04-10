@@ -1,6 +1,13 @@
 const knex = require('knex');
-const config = require('../../knexfile.sqlite.js');
+const knexConfig = require('../../knexfile');
 
-const db = knex(config[process.env.NODE_ENV || 'development']);
+const env = process.env.NODE_ENV || 'development';
+const config = knexConfig[env];
+
+if (!config) {
+  throw new Error(`No knex config found for environment: ${env}`);
+}
+
+const db = knex(config);
 
 module.exports = db;

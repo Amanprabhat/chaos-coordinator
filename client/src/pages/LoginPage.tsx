@@ -13,11 +13,21 @@ interface Node {
   highlighted?: boolean;
 }
 
+const DEMO_ACCOUNTS = [
+  { role: 'Admin / CTO',       dept: 'Leadership',          email: 'admin@demo.com',  color: 'bg-purple-500' },
+  { role: 'Sales',             dept: 'Business Development', email: 'sales@demo.com',  color: 'bg-blue-500'   },
+  { role: 'CSM',               dept: 'Customer Success',     email: 'csm@demo.com',    color: 'bg-teal-500'   },
+  { role: 'Project Manager',   dept: 'Project Management',   email: 'pm@demo.com',     color: 'bg-indigo-500' },
+  { role: 'Product Manager',   dept: 'Product',              email: 'emma@demo.com',   color: 'bg-pink-500'   },
+  { role: 'Client',            dept: 'External',             email: 'client@demo.com', color: 'bg-amber-500'  },
+];
+
 const LoginPage: React.FC = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [nodes, setNodes] = useState<Node[]>([]);
+  const [demoIdx, setDemoIdx] = useState(0);
   const { login } = useAuth();
   const navigate = useNavigate();
 
@@ -76,7 +86,7 @@ const LoginPage: React.FC = () => {
     
     try {
       await login(email, password);
-      navigate('/sales-dashboard');
+      navigate('/dashboard');
     } catch (error) {
       console.error('Login failed:', error);
     } finally {
@@ -328,24 +338,85 @@ const LoginPage: React.FC = () => {
               </motion.button>
             </form>
 
-            {/* Demo Accounts */}
+            {/* Demo Accounts Carousel */}
             <div className="mt-8 pt-6 border-t border-border">
-              <p className="text-sm text-textTertiary text-center mb-3">
-                Demo Accounts
+              <p className="text-xs text-textTertiary text-center mb-3">
+                Demo Accounts — password: <span className="font-mono">password123</span>
               </p>
-              <div className="space-y-2 text-xs text-textSecondary">
-                <div className="flex justify-between">
-                  <span>Sales:</span>
-                  <span>sarah@chaos.co / demo123</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>CSM:</span>
-                  <span>lisa@chaos.co / demo123</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>PM:</span>
-                  <span>john@chaos.co / demo123</span>
-                </div>
+
+              {/* Carousel card */}
+              <div className="relative flex items-center gap-2">
+                {/* Prev */}
+                <button
+                  type="button"
+                  onClick={() => setDemoIdx(i => (i - 1 + DEMO_ACCOUNTS.length) % DEMO_ACCOUNTS.length)}
+                  className="flex-shrink-0 w-7 h-7 flex items-center justify-center rounded-full bg-background border border-border text-textTertiary hover:text-textPrimary hover:border-accent transition-colors"
+                  aria-label="Previous demo account"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                  </svg>
+                </button>
+
+                {/* Card */}
+                <AnimatePresence mode="wait">
+                  <motion.button
+                    key={demoIdx}
+                    type="button"
+                    initial={{ opacity: 0, x: 20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: -20 }}
+                    transition={{ duration: 0.18 }}
+                    onClick={() => {
+                      setEmail(DEMO_ACCOUNTS[demoIdx].email);
+                      setPassword('password123');
+                    }}
+                    className="flex-1 flex items-center gap-3 px-3 py-2.5 bg-background border border-border rounded-xl hover:border-accent hover:bg-accent/5 transition-all duration-150 text-left group"
+                  >
+                    <span className={`w-8 h-8 rounded-full ${DEMO_ACCOUNTS[demoIdx].color} flex items-center justify-center text-white text-xs font-bold flex-shrink-0`}>
+                      {DEMO_ACCOUNTS[demoIdx].role.charAt(0)}
+                    </span>
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold text-textPrimary leading-tight">
+                        {DEMO_ACCOUNTS[demoIdx].role}
+                      </p>
+                      <p className="text-[10px] text-textTertiary leading-tight">{DEMO_ACCOUNTS[demoIdx].dept}</p>
+                      <p className="text-[10px] font-mono text-accent mt-0.5 truncate">{DEMO_ACCOUNTS[demoIdx].email}</p>
+                    </div>
+                    <span className="ml-auto text-[10px] text-textTertiary group-hover:text-accent transition-colors flex-shrink-0">
+                      click to fill
+                    </span>
+                  </motion.button>
+                </AnimatePresence>
+
+                {/* Next */}
+                <button
+                  type="button"
+                  onClick={() => setDemoIdx(i => (i + 1) % DEMO_ACCOUNTS.length)}
+                  className="flex-shrink-0 w-7 h-7 flex items-center justify-center rounded-full bg-background border border-border text-textTertiary hover:text-textPrimary hover:border-accent transition-colors"
+                  aria-label="Next demo account"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                </button>
+              </div>
+
+              {/* Dot indicators */}
+              <div className="flex justify-center gap-1 mt-3">
+                {DEMO_ACCOUNTS.map((_, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => setDemoIdx(i)}
+                    className={`rounded-full transition-all duration-200 ${
+                      i === demoIdx
+                        ? 'w-4 h-1.5 bg-accent'
+                        : 'w-1.5 h-1.5 bg-border hover:bg-textTertiary'
+                    }`}
+                    aria-label={`Select ${DEMO_ACCOUNTS[i].role}`}
+                  />
+                ))}
               </div>
             </div>
           </div>

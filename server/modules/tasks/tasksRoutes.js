@@ -144,14 +144,14 @@ router.post('/', [
       }
     }
 
-    const [newTask] = await db('tasks')
+    const [newId] = await db('tasks')
       .insert({
         ...taskData,
         status: taskData.status || 'todo',
         created_at: new Date(),
         updated_at: new Date()
-      })
-      .returning('*');
+      });
+    const newTask = await db('tasks').where('id', newId).first();
 
     res.status(201).json(newTask);
   } catch (error) {
@@ -206,13 +206,13 @@ router.put('/:id', [
       updateData.completion_date = new Date().toISOString().split('T')[0];
     }
 
-    const [updatedTask] = await db('tasks')
+    await db('tasks')
       .where('id', id)
       .update({
         ...updateData,
         updated_at: new Date()
-      })
-      .returning('*');
+      });
+    const updatedTask = await db('tasks').where('id', id).first();
 
     res.json(updatedTask);
   } catch (error) {
@@ -273,20 +273,23 @@ router.post('/batch', [
       await OwnershipValidator.validateUserExists(userId, db);
     }
 
-    // Insert all tasks
+    // Insert all tasks (SQLite returns the last inserted rowid for batch inserts;
+    // fetch by project_id + title as a reliable alternative)
+    const taskRows = tasks.map(task => ({
+      ...task,
+      status: task.status || 'todo',
+      created_at: new Date(),
+      updated_at: new Date()
+    }));
+    await db('tasks').insert(taskRows);
+    // Re-fetch the just-inserted tasks by matching project and creation time
     const insertedTasks = await db('tasks')
-      .insert(
-        tasks.map(task => ({
-          ...task,
-          status: task.status || 'todo',
-          created_at: new Date(),
-          updated_at: new Date()
-        }))
-      )
-      .returning('*');
+      .whereIn('project_id', [...new Set(taskRows.map(t => t.project_id))])
+      .orderBy('id', 'desc')
+      .limit(taskRows.length);
 
     res.status(201).json({
-      message: `${insertedTasks.length} tasks created successfully`,
+      message: `${taskRows.length} tasks created successfully`,
       tasks: insertedTasks
     });
   } catch (error) {
@@ -333,7 +336,7 @@ router.get('/overdue', async (req, res) => {
       .leftJoin('projects', 'tasks.project_id', 'projects.id')
       .leftJoin('users as owner', 'tasks.owner_id', 'owner.id')
       .where('tasks.due_date', '<', today)
-      .where('tasks.status', 'in', ['todo', 'in_progress'])
+      .whereIn('tasks.status', ['todo', 'in_progress'])
       .orderBy('tasks.due_date', 'asc');
 
     res.json({
@@ -372,13 +375,13 @@ router.post('/:id/assign', [
       return res.status(404).json({ error: 'Task not found' });
     }
 
-    const [updatedTask] = await db('tasks')
+    await db('tasks')
       .where('id', id)
       .update({
         owner_id,
         updated_at: new Date()
-      })
-      .returning('*');
+      });
+    const updatedTask = await db('tasks').where('id', id).first();
 
     // Log assignment change
     await db('activity_log').insert({

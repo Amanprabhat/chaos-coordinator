@@ -130,14 +130,14 @@ router.post('/', [
       return res.status(400).json({ error: 'Project not found' });
     }
 
-    const [newMilestone] = await db('milestones')
+    const [newId] = await db('milestones')
       .insert({
         ...milestoneData,
         status: milestoneData.status || 'pending',
         created_at: new Date(),
         updated_at: new Date()
-      })
-      .returning('*');
+      });
+    const newMilestone = await db('milestones').where('id', newId).first();
 
     res.status(201).json(newMilestone);
   } catch (error) {
@@ -182,13 +182,13 @@ router.put('/:id', [
       updateData.completion_date = new Date().toISOString().split('T')[0];
     }
 
-    const [updatedMilestone] = await db('milestones')
+    await db('milestones')
       .where('id', id)
       .update({
         ...updateData,
         updated_at: new Date()
-      })
-      .returning('*');
+      });
+    const updatedMilestone = await db('milestones').where('id', id).first();
 
     res.json(updatedMilestone);
   } catch (error) {
@@ -323,7 +323,7 @@ router.get('/overdue', async (req, res) => {
       .leftJoin('projects', 'milestones.project_id', 'projects.id')
       .leftJoin('users as owner', 'milestones.owner_id', 'owner.id')
       .where('milestones.due_date', '<', today)
-      .where('milestones.status', 'in', ['pending', 'in_progress'])
+      .whereIn('milestones.status', ['pending', 'in_progress'])
       .orderBy('milestones.due_date', 'asc');
 
     // Calculate days overdue
@@ -370,14 +370,14 @@ router.post('/:id/complete', [
       return res.status(400).json({ error: 'Milestone is already completed' });
     }
 
-    const [updatedMilestone] = await db('milestones')
+    await db('milestones')
       .where('id', id)
       .update({
         status: 'completed',
         completion_date: new Date().toISOString().split('T')[0],
         updated_at: new Date()
-      })
-      .returning('*');
+      });
+    const updatedMilestone = await db('milestones').where('id', id).first();
 
     // Log milestone completion
     await db('activity_log').insert({
