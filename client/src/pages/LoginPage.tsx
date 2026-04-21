@@ -14,7 +14,7 @@ interface Node {
 }
 
 const DEMO_ACCOUNTS = [
-  { role: 'Admin / CTO',       dept: 'Leadership',          email: 'admin@demo.com',  color: 'bg-purple-500' },
+  { role: 'Admin',              dept: 'Leadership',          email: 'admin@demo.com',  color: 'bg-purple-500' },
   { role: 'Sales',             dept: 'Business Development', email: 'sales@demo.com',  color: 'bg-blue-500'   },
   { role: 'CSM',               dept: 'Customer Success',     email: 'csm@demo.com',    color: 'bg-teal-500'   },
   { role: 'Project Manager',   dept: 'Project Management',   email: 'pm@demo.com',     color: 'bg-indigo-500' },

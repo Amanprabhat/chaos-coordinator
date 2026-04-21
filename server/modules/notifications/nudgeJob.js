@@ -241,6 +241,185 @@ async function runNudgeJob() {
   }
 }
 
+// ─── Client Accountability Nudge ─────────────────────────────────────────────
+
+/**
+ * Build a client-facing HTML email for overdue WBS tasks assigned to them.
+ */
+function buildClientNudgeEmail({ projectName, tasks, isEscalation, csm_name }) {
+  const taskRows = tasks.map(t => `
+    <tr>
+      <td style="padding:8px 12px;border-bottom:1px solid #f0f0f0">${t.name}</td>
+      <td style="padding:8px 12px;border-bottom:1px solid #f0f0f0;color:#f59e0b;font-weight:600;text-transform:capitalize">${t.status.replace(/_/g,' ')}</td>
+      <td style="padding:8px 12px;border-bottom:1px solid #f0f0f0;font-family:monospace;font-size:11px;color:#9ca3af">${t.wbs}</td>
+    </tr>`).join('');
+
+  const urgencyNote = isEscalation
+    ? `<div style="background:#fef3c7;border:1px solid #fcd34d;border-radius:8px;padding:12px 16px;margin-bottom:20px">
+        <p style="margin:0;color:#92400e;font-size:13px;font-weight:600">⚠️ These items have been pending for 72+ hours and are now delaying the project timeline.</p>
+       </div>`
+    : '';
+
+  return `
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8" /></head>
+<body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f9fafb;margin:0;padding:24px">
+  <div style="max-width:600px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 1px 6px rgba(0,0,0,.08)">
+    <div style="background:linear-gradient(135deg,#4f46e5,#7c3aed);padding:24px 32px">
+      <h1 style="color:#fff;margin:0;font-size:20px">Chaos Coordinator</h1>
+      <p style="color:#c4b5fd;margin:4px 0 0;font-size:13px">Project: ${projectName}</p>
+    </div>
+    <div style="padding:32px">
+      <p style="color:#374151">Hi there,</p>
+      <p style="color:#374151">We're reaching out because the following items in your implementation project require your input or action to keep things moving forward:</p>
+      ${urgencyNote}
+      <table style="width:100%;border-collapse:collapse;margin-top:16px;font-size:13px">
+        <thead>
+          <tr style="background:#f3f4f6">
+            <th style="padding:8px 12px;text-align:left;font-weight:600;color:#374151">Action Required</th>
+            <th style="padding:8px 12px;text-align:left;font-weight:600;color:#374151">Status</th>
+            <th style="padding:8px 12px;text-align:left;font-weight:600;color:#374151">Ref #</th>
+          </tr>
+        </thead>
+        <tbody>${taskRows}</tbody>
+      </table>
+      <p style="margin-top:24px;color:#374151;font-size:13px">
+        Please log in to the <strong>Client Portal</strong> or reply directly to your CSM${csm_name ? ` (${csm_name})` : ''} to provide the required inputs.
+      </p>
+      <p style="margin-top:16px;font-size:12px;color:#9ca3af">
+        This is an automated reminder from your implementation team. Your timely response helps us deliver on schedule.
+      </p>
+    </div>
+  </div>
+</body>
+</html>`;
+}
+
+/**
+ * Client accountability nudge.
+ * Scans WBS plans for tasks with owner_role='Client' or type='Client Requirement'
+ * that are overdue (not completed, planned_end in the past).
+ *
+ * Thresholds:
+ *   ≥ 48h  → email client SPOC
+ *   ≥ 72h  → email client SPOC + notify CSM (escalation)
+ */
+async function runClientNudgeJob() {
+  console.log('🔔 ClientNudge: running at', new Date().toISOString());
+  const now = new Date();
+  const cutoff48h = new Date(now.getTime() - 48 * 60 * 60 * 1000);
+  const cutoff72h = new Date(now.getTime() - 72 * 60 * 60 * 1000);
+
+  try {
+    // Fetch all active projects with a plan + client SPOC email
+    const projects = await db('projects')
+      .leftJoin('users as csm_user', 'projects.csm_id', 'csm_user.id')
+      .select(
+        'projects.id', 'projects.name', 'projects.project_plan',
+        'projects.client_spoc_email', 'projects.client_spoc_name',
+        'projects.csm_id', 'csm_user.name as csm_name', 'csm_user.email as csm_email'
+      )
+      .whereIn('projects.status', ['ACTIVE'])
+      .whereNotNull('projects.project_plan')
+      .whereNotNull('projects.client_spoc_email');
+
+    for (const project of projects) {
+      let plan;
+      try { plan = JSON.parse(project.project_plan); } catch { continue; }
+      if (!Array.isArray(plan)) continue;
+
+      // Find client tasks that are not completed and have a planned_end in the past
+      const clientTasks = plan.filter(t =>
+        (t.owner_role === 'Client' || t.type === 'Client Requirement') &&
+        t.status !== 'completed' &&
+        t.planned_end &&
+        new Date(t.planned_end) < cutoff48h
+      );
+
+      if (clientTasks.length === 0) continue;
+
+      const tasks48h = clientTasks.filter(t => new Date(t.planned_end) < cutoff48h && new Date(t.planned_end) >= cutoff72h);
+      const tasks72h = clientTasks.filter(t => new Date(t.planned_end) < cutoff72h);
+
+      // ── 48h nudge → email client ────────────────────────────────────────────
+      if (tasks48h.length > 0) {
+        const nudgeType = `client_48h_${project.id}`;
+        // Check per-task deduplication using a synthetic task_id key
+        const newTasks = [];
+        for (const t of tasks48h) {
+          const syntheticId = t.id || `${project.id}_${t.wbs}`;
+          const alreadySent = await nudgeAlreadySent(syntheticId, 0, `client_48h`);
+          if (!alreadySent) newTasks.push(t);
+        }
+
+        if (newTasks.length > 0) {
+          await sendEmail({
+            to:      project.client_spoc_email,
+            subject: `[Action Required] ${newTasks.length} item${newTasks.length > 1 ? 's' : ''} need your input — ${project.name}`,
+            html:    buildClientNudgeEmail({
+              projectName: project.name,
+              tasks:       newTasks,
+              isEscalation: false,
+              csm_name:    project.csm_name,
+            }),
+          });
+
+          for (const t of newTasks) {
+            const syntheticId = t.id || `${project.id}_${t.wbs}`;
+            await logNudgeSent(syntheticId, 0, 'client_48h');
+          }
+          console.log(`🔔 ClientNudge: emailed ${project.client_spoc_email} for ${newTasks.length} tasks in "${project.name}"`);
+        }
+      }
+
+      // ── 72h escalation → email client again + notify CSM ───────────────────
+      if (tasks72h.length > 0) {
+        const newTasks = [];
+        for (const t of tasks72h) {
+          const syntheticId = t.id || `${project.id}_${t.wbs}`;
+          const alreadySent = await nudgeAlreadySent(syntheticId, 0, 'client_72h');
+          if (!alreadySent) newTasks.push(t);
+        }
+
+        if (newTasks.length > 0) {
+          // Email client with urgency
+          await sendEmail({
+            to:      project.client_spoc_email,
+            subject: `[Urgent] Project delay risk — ${newTasks.length} item${newTasks.length > 1 ? 's' : ''} overdue 72h+ — ${project.name}`,
+            html:    buildClientNudgeEmail({
+              projectName:  project.name,
+              tasks:        newTasks,
+              isEscalation: true,
+              csm_name:     project.csm_name,
+            }),
+          });
+
+          // In-app notification for CSM
+          if (project.csm_id) {
+            await createNotification({
+              user_id:    project.csm_id,
+              project_id: project.id,
+              task_id:    null,
+              type:       'client_overdue_escalation',
+              title:      `Client escalation: ${project.client_spoc_name || project.client_spoc_email} has ${newTasks.length} overdue item${newTasks.length > 1 ? 's' : ''} (72h+)`,
+              message:    `Project: ${project.name}\n` + newTasks.map(t => `• ${t.name} (${t.wbs})`).join('\n'),
+            });
+          }
+
+          for (const t of newTasks) {
+            const syntheticId = t.id || `${project.id}_${t.wbs}`;
+            await logNudgeSent(syntheticId, 0, 'client_72h');
+          }
+          console.log(`🔔 ClientNudge: 72h escalation for "${project.name}" — notified CSM ${project.csm_name}`);
+        }
+      }
+    }
+  } catch (err) {
+    console.error('🔔 ClientNudge error:', err);
+  }
+}
+
 /**
  * Start the cron schedule.
  * Runs at the top of every hour (0 * * * *).
@@ -248,8 +427,9 @@ async function runNudgeJob() {
 function startNudgeCron() {
   cron.schedule('0 * * * *', () => {
     runNudgeJob().catch(console.error);
+    runClientNudgeJob().catch(console.error);
   });
   console.log('🔔 NudgeJob: cron scheduled (hourly)');
 }
 
-module.exports = { startNudgeCron, runNudgeJob };
+module.exports = { startNudgeCron, runNudgeJob, runClientNudgeJob };

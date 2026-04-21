@@ -128,8 +128,12 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Login failed');
+        // Guard against plain-text responses (e.g. rate-limiter returning "Too many requests")
+        const text = await response.text();
+        let msg = 'Login failed';
+        try { msg = JSON.parse(text).error || msg; } catch { msg = text || msg; }
+        if (response.status === 429) msg = 'Too many login attempts — please wait a moment and try again.';
+        throw new Error(msg);
       }
 
       const data = await response.json();

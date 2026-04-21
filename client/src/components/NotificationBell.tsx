@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 
 interface Notification {
   id: number;
@@ -15,6 +16,8 @@ interface Props {
   userId: number;
   /** 'dark' = designed for dark sidebars/navbars; 'light' = designed for white headers */
   theme?: 'dark' | 'light';
+  /** Extra count to include in badge (e.g. pending approvals from a separate source) */
+  pendingApprovals?: number;
 }
 
 const TYPE_ICON: Record<string, { bg: string; icon: React.ReactNode }> = {
@@ -62,7 +65,8 @@ function timeAgo(dateStr: string): string {
   return `${Math.floor(hrs / 24)}d ago`;
 }
 
-const NotificationBell: React.FC<Props> = ({ userId, theme = 'dark' }) => {
+const NotificationBell: React.FC<Props> = ({ userId, theme = 'dark', pendingApprovals = 0 }) => {
+  const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -144,12 +148,12 @@ const NotificationBell: React.FC<Props> = ({ userId, theme = 'dark' }) => {
           aria-label="Notifications"
         >
           {/* Animated ring behind bell when unread */}
-          {unreadCount > 0 && (
+          {(unreadCount + pendingApprovals) > 0 && (
             <span className="absolute inset-0 rounded-lg bg-red-400/20 animate-ping pointer-events-none" />
           )}
 
           <svg
-            className={`w-5 h-5 ${unreadCount > 0 ? 'bell-ring-pulse' : ''}`}
+            className={`w-5 h-5 ${(unreadCount + pendingApprovals) > 0 ? 'bell-ring-pulse' : ''}`}
             fill="none"
             stroke="currentColor"
             viewBox="0 0 24 24"
@@ -158,10 +162,10 @@ const NotificationBell: React.FC<Props> = ({ userId, theme = 'dark' }) => {
               d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
           </svg>
 
-          {/* Unread badge — sits on top of the bell */}
-          {unreadCount > 0 && (
+          {/* Unread badge — includes pending approvals in total count */}
+          {(unreadCount + pendingApprovals) > 0 && (
             <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center px-1 shadow-md ring-2 ring-white/20">
-              {unreadCount > 99 ? '99+' : unreadCount}
+              {(unreadCount + pendingApprovals) > 99 ? '99+' : (unreadCount + pendingApprovals)}
             </span>
           )}
         </button>
@@ -178,8 +182,8 @@ const NotificationBell: React.FC<Props> = ({ userId, theme = 'dark' }) => {
             <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between bg-white">
               <div>
                 <p className="text-sm font-bold text-gray-900">Notifications</p>
-                {unreadCount > 0 && (
-                  <p className="text-xs text-gray-400">{unreadCount} unread</p>
+                {(unreadCount + pendingApprovals) > 0 && (
+                  <p className="text-xs text-gray-400">{unreadCount + pendingApprovals} unread</p>
                 )}
               </div>
               {unreadCount > 0 && (
@@ -192,9 +196,30 @@ const NotificationBell: React.FC<Props> = ({ userId, theme = 'dark' }) => {
               )}
             </div>
 
+            {/* Pending approvals banner — clickable, filters dashboard to AWAITING_APPROVAL */}
+            {pendingApprovals > 0 && (
+              <button
+                onClick={() => { setOpen(false); navigate('/admin-dashboard?filter=AWAITING_APPROVAL'); }}
+                className="w-full flex items-center gap-3 px-4 py-3 bg-violet-50 border-b border-violet-100 hover:bg-violet-100 transition-colors text-left"
+              >
+                <div className="w-8 h-8 rounded-full bg-violet-100 flex items-center justify-center flex-shrink-0">
+                  <svg className="w-4 h-4 text-violet-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-violet-900">
+                    {pendingApprovals} project{pendingApprovals > 1 ? 's' : ''} awaiting approval
+                  </p>
+                  <p className="text-xs text-violet-600 mt-0.5">Tap to review →</p>
+                </div>
+                <span className="w-2 h-2 rounded-full bg-violet-500 flex-shrink-0 animate-pulse" />
+              </button>
+            )}
+
             {/* List */}
             <div className="max-h-96 overflow-y-auto divide-y divide-gray-50">
-              {notifications.length === 0 ? (
+              {notifications.length === 0 && pendingApprovals === 0 ? (
                 <div className="px-4 py-10 text-center">
                   <div className="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-3">
                     <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -204,15 +229,18 @@ const NotificationBell: React.FC<Props> = ({ userId, theme = 'dark' }) => {
                   <p className="text-sm text-gray-500">All caught up!</p>
                   <p className="text-xs text-gray-400 mt-1">No notifications yet</p>
                 </div>
-              ) : (
+              ) : notifications.length === 0 ? null : (
                 notifications.map(n => {
                   const { bg, icon } = TYPE_ICON[n.type] ?? defaultIcon;
                   return (
                     <div
                       key={n.id}
-                      onClick={() => !n.is_read && markRead(n.id)}
-                      className={`flex items-start gap-3 px-4 py-3 transition-colors ${
-                        n.is_read ? 'bg-white' : 'bg-indigo-50/60 hover:bg-indigo-50 cursor-pointer'
+                      onClick={() => {
+                        if (!n.is_read) markRead(n.id);
+                        if (n.project_id) { setOpen(false); navigate(`/project/${n.project_id}`); }
+                      }}
+                      className={`flex items-start gap-3 px-4 py-3 transition-colors cursor-pointer ${
+                        n.is_read ? 'bg-white hover:bg-gray-50' : 'bg-indigo-50/60 hover:bg-indigo-50'
                       }`}
                     >
                       <div className={`w-8 h-8 rounded-full ${bg} flex items-center justify-center flex-shrink-0 mt-0.5`}>

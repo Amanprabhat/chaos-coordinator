@@ -382,7 +382,9 @@ function addWorkingDays(startDate, days) {
  * Day 1 = the start date itself (if it is a working day).
  */
 function workingDayDate(startDate, dayNum) {
-  const date = new Date(startDate);
+  // Normalize: handle "2025-01-15 00:00:00" from SQLite or ISO strings
+  const clean = typeof startDate === 'string' ? startDate.split('T')[0].split(' ')[0] : startDate;
+  const date = new Date(clean + (typeof clean === 'string' && clean.length === 10 ? 'T00:00:00' : ''));
   let count = 0;
   while (count < dayNum - 1) {
     date.setDate(date.getDate() + 1);
@@ -407,6 +409,8 @@ function formatDate(d) {
  * @returns {Array} array of task objects with full WBS type metadata
  */
 function generateProjectPlan({ startDate, hasIntegrations, momText, integrationDetails, customTotalDays }) {
+  // Normalize startDate to YYYY-MM-DD (SQLite may return "2025-01-15 00:00:00")
+  if (startDate) startDate = startDate.split('T')[0].split(' ')[0];
   let rawTasks = [...BASE_PLAN_V2];
   if (hasIntegrations) rawTasks = [...rawTasks, ...PHASE2_PLAN];
 

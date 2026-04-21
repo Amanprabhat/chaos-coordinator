@@ -6,10 +6,12 @@ import LoginPage from '../pages/LoginPage';
 import DashboardPlaceholder from '../pages/DashboardPlaceholder';
 import SalesDashboard from '../pages/SalesDashboard';
 import AdminDashboard from '../pages/AdminDashboard';
+import Analytics from '../pages/Analytics';
 import CSMDashboard from '../pages/CSMDashboard';
 import AllProjectsPage from '../pages/AllProjectsPage';
 import { SalesIntakePage } from '../features/sales';
 import ProjectDashboard from '../pages/ProjectDashboard';
+import ClientPortal from '../pages/ClientPortal';
 
 const RoleBasedRouter: React.FC = () => {
   const { user, isAuthenticated } = useAuth();
@@ -76,11 +78,7 @@ const RoleBasedRouter: React.FC = () => {
         path="/client-dashboard"
         element={
           <ProtectedRoute allowedRoles={['Client']}>
-            <DashboardPlaceholder
-              role="Client"
-              title="Client Dashboard"
-              description="View project progress and deliverables"
-            />
+            <ClientPortal />
           </ProtectedRoute>
         }
       />
@@ -114,6 +112,20 @@ const RoleBasedRouter: React.FC = () => {
         element={
           <ProtectedRoute allowedRoles={['Sales', 'CSM', 'PM', 'Admin', 'Client']}>
             <ProjectDashboard />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/admin/analytics"
+        element={<Navigate to="/analytics" replace />}
+      />
+
+      <Route
+        path="/analytics"
+        element={
+          <ProtectedRoute allowedRoles={['CSM', 'PM', 'Sales', 'Admin']}>
+            <Analytics />
           </ProtectedRoute>
         }
       />

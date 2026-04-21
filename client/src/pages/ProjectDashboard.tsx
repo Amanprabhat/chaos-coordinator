@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import NotificationBell from '../components/NotificationBell';
+import DiscussionForum from '../components/DiscussionForum';
 
 // ─── Interfaces ────────────────────────────────────────────────────────────────
 interface WBSTask {
@@ -202,7 +203,7 @@ const ProjectDashboard: React.FC = () => {
   const [risks, setRisks]           = useState<Risk[]>([]);
   const [loading, setLoading]       = useState(true);
   const [error, setError]           = useState<string | null>(null);
-  const [activeTab, setActiveTab]   = useState<'overview' | 'wbs' | 'gantt'>('overview');
+  const [activeTab, setActiveTab]   = useState<'overview' | 'wbs' | 'gantt' | 'discussion'>('overview');
 
   // ── WBS edit state ─────────────────────────────────────────────────────────
   const [editMode, setEditMode]       = useState(false);
@@ -243,6 +244,9 @@ const ProjectDashboard: React.FC = () => {
   const canEdit = user?.role === 'CSM'
     || (user?.role === 'PM' && user?.department === 'Project Management')
     || user?.role === 'Admin';
+
+  // All PMs, CSMs, Admins can manage start date (not just Project Management dept PMs)
+  const canEditStartDate = user?.role === 'CSM' || user?.role === 'PM' || user?.role === 'Admin';
 
   const dashboardPath =
     user?.role === 'CSM'   ? '/csm-dashboard'  :
@@ -445,10 +449,12 @@ const ProjectDashboard: React.FC = () => {
         setStartDateError(d.error || 'Failed to save.');
         return;
       }
-      const data = await res.json();
-      setProject(data.project);
-      // Refresh logs
-      const logsRes = await fetch(`http://localhost:3001/api/projects/${id}/start-date-logs`);
+      // Refetch the full joined project + logs in parallel
+      const [projRes, logsRes] = await Promise.all([
+        fetch(`http://localhost:3001/api/projects/${id}`),
+        fetch(`http://localhost:3001/api/projects/${id}/start-date-logs`),
+      ]);
+      if (projRes.ok) setProject(await projRes.json());
       if (logsRes.ok) setStartDateLogs(await logsRes.json());
       setShowStartDateModal(false);
       setShowStartDateEdit(false);
@@ -711,10 +717,15 @@ const ProjectDashboard: React.FC = () => {
             {/* Tabs */}
             <div className="bg-white border-b border-gray-200 px-6 flex-shrink-0">
               <div className="flex gap-0">
-                {(['overview','wbs','gantt'] as const).map(tab => (
-                  <button key={tab} onClick={() => setActiveTab(tab)}
-                    className={`px-5 py-3.5 text-sm font-medium border-b-2 transition-colors ${activeTab===tab ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
-                    {tab === 'overview' ? 'Overview' : tab === 'wbs' ? 'WBS Plan' : 'Gantt Chart'}
+                {([
+                  { id: 'overview',    label: 'Overview'    },
+                  { id: 'wbs',         label: 'WBS Plan'    },
+                  { id: 'gantt',       label: 'Gantt Chart' },
+                  { id: 'discussion',  label: 'Discussion'  },
+                ] as const).map(tab => (
+                  <button key={tab.id} onClick={() => setActiveTab(tab.id)}
+                    className={`px-5 py-3.5 text-sm font-medium border-b-2 transition-colors ${activeTab===tab.id ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+                    {tab.label}
                   </button>
                 ))}
               </div>
@@ -872,8 +883,12 @@ const ProjectDashboard: React.FC = () => {
                         ))}
                       </div>
 
-                      {/* Column header strip */}
-                      <div className="flex items-center gap-2 pl-9 pr-4 py-1.5 bg-gray-50 border border-gray-200 rounded-lg mb-1 text-[9px] font-bold text-gray-400 uppercase tracking-wider">
+                      {/* Column header + rows — horizontally scrollable so no columns are hidden */}
+                      <div style={{overflowX:'auto'}}>
+                      <div style={{minWidth:'920px'}}>
+
+                      {/* Column header strip — pl matches row indent: pl-4(16) + w-4(16) + gap(8) + w-3(12) + gap(8) = 60px */}
+                      <div className="flex items-center gap-2 pr-4 py-1.5 bg-gray-50 border border-gray-200 rounded-lg mb-1 text-[9px] font-bold text-gray-400 uppercase tracking-wider" style={{paddingLeft:'60px'}}>
                         <span className="w-16 flex-shrink-0">WBS #</span>
                         <span className="w-24 flex-shrink-0">Type</span>
                         <span className="flex-1 min-w-0">Task / Deliverable</span>
@@ -938,7 +953,7 @@ const ProjectDashboard: React.FC = () => {
                                             </button>
                                             <span className={`text-[10px] font-mono font-bold ${colors.text} opacity-60 w-10 flex-shrink-0`}>{summaryRow?.wbs || sprintNum}</span>
                                             <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${colors.bar} text-white flex-shrink-0 whitespace-nowrap`}>
-                                              {summaryRow?.sprint_label || (sprintNum >= 0 ? `Sprint ${sprintNum}` : phaseName)}
+                                              {summaryRow?.sprint_label || (sprintNum != null && !isNaN(Number(sprintNum)) && Number(sprintNum) >= 0 ? `Sprint ${sprintNum}` : phaseName)}
                                             </span>
                                             {/* Sprint title — editable in edit mode */}
                                             {editMode && editingSprintNum === sprintNum ? (
@@ -960,13 +975,13 @@ const ProjectDashboard: React.FC = () => {
                                                 onClick={() => toggleSprint(sprintNum)}
                                                 className={`text-xs font-semibold ${colors.text} flex-1 min-w-0 truncate text-left`}
                                               >
-                                                {summaryRow?.name || `Sprint ${sprintNum}`}
+                                                {summaryRow?.name || (sprintNum != null && !isNaN(Number(sprintNum)) ? `Sprint ${sprintNum}` : 'Tasks')}
                                               </button>
                                             )}
                                             {/* Edit pencil — visible on hover in edit mode */}
                                             {editMode && editingSprintNum !== sprintNum && (
                                               <button
-                                                onClick={() => startSprintEdit(sprintNum, summaryRow?.name || `Sprint ${sprintNum}`)}
+                                                onClick={() => startSprintEdit(sprintNum, summaryRow?.name || (sprintNum != null && !isNaN(Number(sprintNum)) ? `Sprint ${sprintNum}` : 'Tasks'))}
                                                 className={`flex-shrink-0 opacity-0 group-hover:opacity-60 hover:!opacity-100 ${colors.text} transition-opacity`}
                                                 title="Edit sprint title"
                                               >
@@ -992,9 +1007,10 @@ const ProjectDashboard: React.FC = () => {
                                               {childRows.map((task, taskIdx) => {
                                                 const isLast  = taskIdx === childRows.length - 1;
                                                 const typeCfg = TYPE_CONFIG[task.type || 'Task'] || TYPE_CONFIG['Task'];
-                                                const isStatusRow = task.type === 'Task' || task.type === 'Deliverable' || task.type === 'Client Requirement';
-                                                const isMilestone = task.type === 'Milestone';
-                                                const isNoAction  = task.type === 'Assumption' || task.type === 'Risk';
+                                                const effectiveType = task.type || 'Task';
+                                                const isStatusRow = effectiveType === 'Task' || effectiveType === 'Deliverable' || effectiveType === 'Client Requirement';
+                                                const isMilestone = effectiveType === 'Milestone';
+                                                const isNoAction  = effectiveType === 'Assumption' || effectiveType === 'Risk';
 
                                                 return (
                                                   <div
@@ -1193,6 +1209,8 @@ const ProjectDashboard: React.FC = () => {
                           </div>
                         );
                       })()}
+                      </div>{/* /min-w */}
+                      </div>{/* /overflow-x-auto */}
                     </>
                   )}
                 </div>
@@ -1302,17 +1320,19 @@ const ProjectDashboard: React.FC = () => {
                                 {/* Sprint label row */}
                                 <div className={`flex border-b border-t-2 ${colors.border}`}>
                                   <div className={`w-56 flex-shrink-0 border-r border-gray-100 px-4 py-1.5 flex items-center gap-2 ${colors.bg}`}>
-                                    <span className={`text-[10px] font-bold ${colors.text}`}>{sprintTasks[0]?.sprint_label || `Sprint ${sprintNum}`}</span>
+                                    <span className={`text-[10px] font-bold ${colors.text}`}>{sprintTasks[0]?.sprint_label || (sprintNum != null && !isNaN(Number(sprintNum)) ? `Sprint ${sprintNum}` : 'Tasks')}</span>
                                   </div>
                                   <div className={`flex-1 h-6 ${colors.bg} opacity-40`} />
                                 </div>
-                                {sprintTasks.map((task) => {
-                                  const barColor = statusBarColor[task.status] || colors.bar;
+                                {sprintTasks.filter(t => !['Phase','Summary'].includes(t.type || '')).map((task) => {
+                                  const effectiveStatus = task.status || 'not_started';
+                                  const barColor = statusBarColor[effectiveStatus] || colors.bar || 'bg-indigo-400';
                                   return (
                                     <div key={task.id} className="flex border-b border-gray-100 hover:bg-gray-50/50">
-                                      <div className="w-56 flex-shrink-0 border-r border-gray-100 px-4 py-1.5 flex items-center gap-2">
-                                        <span className={`text-[9px] font-mono ${colors.text} opacity-70 flex-shrink-0`}>{task.wbs}</span>
+                                      <div className="w-56 flex-shrink-0 border-r border-gray-100 px-4 py-1.5 flex items-center gap-1.5">
+                                        <span className={`text-[9px] font-mono ${colors.text} opacity-70 flex-shrink-0 w-8`}>{task.wbs}</span>
                                         <p className="text-xs text-gray-700 truncate leading-tight flex-1" title={task.name}>{task.name}</p>
+                                        <StatusChip status={task.status || 'not_started'} />
                                       </div>
                                       <div className="flex-1 relative h-8 bg-white">
                                         {/* Grid lines every 5 days */}
@@ -1321,7 +1341,7 @@ const ProjectDashboard: React.FC = () => {
                                         ))}
                                         {/* Task bar */}
                                         <div
-                                          className={`absolute top-1.5 bottom-1.5 rounded ${barColor} flex items-center overflow-hidden opacity-90`}
+                                          className={`absolute top-1.5 bottom-1.5 rounded ${barColor || 'bg-indigo-400'} flex items-center overflow-hidden opacity-90`}
                                           style={{ left: `${((task.day_start - 1) / totalDays) * 100}%`, width: `${(task.duration_days / totalDays) * 100}%`, minWidth: '3px' }}
                                         >
                                           <span className="text-[9px] text-white font-medium px-1.5 truncate">{task.name}</span>
@@ -1399,6 +1419,13 @@ const ProjectDashboard: React.FC = () => {
                   </div>
                 );
               })()}
+
+              {/* ── DISCUSSION TAB ─────────────────────────────────────────── */}
+              {activeTab === 'discussion' && (
+                <div className="max-w-4xl">
+                  <DiscussionForum projectId={project.id} projectName={project.name} />
+                </div>
+              )}
             </div>
           </div>
 
@@ -1580,9 +1607,9 @@ const ProjectDashboard: React.FC = () => {
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest">Project Start Date</h3>
-                  {canEdit && !showStartDateEdit && (
+                  {canEditStartDate && !showStartDateEdit && (
                     <button
-                      onClick={() => { setShowStartDateEdit(true); setStartDateForm({ date: project.project_start_date || '', reason: '', total_days: '' }); setStartDateError(''); }}
+                      onClick={() => { setShowStartDateEdit(true); setStartDateForm({ date: (project.project_start_date || '').split('T')[0], reason: '', total_days: '' }); setStartDateError(''); }}
                       className="text-[10px] font-semibold text-indigo-500 hover:text-indigo-700 transition-colors"
                     >
                       {project.project_start_date ? 'Change' : '+ Set Date'}

@@ -479,4 +479,370 @@ router.get('/performance', async (req, res) => {
   }
 });
 
+// GET /api/dashboard/audit-log — activity trail, role-scoped
+// Params: limit, project_id, action, from, to, user_role, user_id, csm_id, pm_id, owner_id
+router.get('/audit-log', async (req, res) => {
+  try {
+    const { limit = 200, project_id, action, from, to, user_role, user_id, csm_id, pm_id, owner_id } = req.query;
+
+    // Scope to projects visible to the requesting user
+    let scopedProjectIds = null;
+    if (user_role && user_role !== 'Admin') {
+      let pq = db('projects').select('id');
+      if (csm_id)        pq = pq.where('csm_id', csm_id);
+      else if (pm_id)    pq = pq.where('pm_id', pm_id);
+      else if (owner_id) pq = pq.where('owner_id', owner_id);
+      else if (user_id)  pq = pq.where(function() {
+        this.where('owner_id', user_id).orWhere('csm_id', user_id).orWhere('pm_id', user_id);
+      });
+      scopedProjectIds = (await pq).map(r => r.id);
+    }
+
+    let query = db('activity_log')
+      .select(
+        'activity_log.*',
+        'projects.name as project_name',
+        'projects.client_name',
+        'projects.status as project_status'
+      )
+      .leftJoin('projects', 'activity_log.project_id', 'projects.id')
+      .orderBy('activity_log.created_at', 'desc')
+      .limit(parseInt(limit));
+
+    if (scopedProjectIds) query = query.whereIn('activity_log.project_id', scopedProjectIds);
+    if (project_id) query = query.where('activity_log.project_id', project_id);
+    if (action)     query = query.where('activity_log.action', action);
+    if (from)       query = query.where('activity_log.created_at', '>=', from);
+    if (to)         query = query.where('activity_log.created_at', '<=', to + ' 23:59:59');
+
+    const logs = await query;
+    for (const log of logs) {
+      try { log.details = JSON.parse(log.details); } catch { /* keep as string */ }
+    }
+    res.json(logs);
+  } catch (error) {
+    console.error('Error fetching audit log:', error);
+    res.status(500).json({ error: 'Failed to fetch audit log' });
+  }
+});
+
+// GET /api/dashboard/analytics — aggregated stats, role-scoped
+// Params: period, user_role, user_id, csm_id, pm_id, owner_id,
+//         status, priority, project_type, client, created_from, created_to, go_live_from, go_live_to
+router.get('/analytics', async (req, res) => {
+  try {
+    const {
+      period = '30', user_role, user_id, csm_id, pm_id, owner_id,
+      status, priority, project_type, client,
+      created_from, created_to, go_live_from, go_live_to,
+    } = req.query;
+    const since = new Date();
+    since.setDate(since.getDate() - (parseInt(period) || 30));
+    const sinceStr = since.toISOString().split('T')[0];
+    const today    = new Date().toISOString().split('T')[0];
+
+    const EMPTY = {
+      period: parseInt(period), scopedRole: user_role || 'Admin',
+      projectsByStatus: [], tasksByStatus: [], wbsTasksByStatus: [],
+      overdueTasks: 0, blockedTasks: 0, wbsOverdueCount: 0, wbsBlockedCount: 0, wbsBlockedTaskList: [], wbsOverdueTaskList: [],
+      recentActivity: [], weeklyActivityTrend: [], milestoneStats: [],
+      goLiveThisMonth: 0, activeProjects: 0, myTasksByStatus: [],
+      byType: [], byPriority: [], upcomingGoLive: [], atRiskProjects: [],
+      projectHealth: [], createdThisPeriod: 0, avgProjectAgeDays: 0, totalProjects: 0,
+      stageVelocity: 0, topClients: [], csmWorkload: [], pmWorkload: [],
+    };
+
+    // ── Role-based scoping ────────────────────────────────────────────────────
+    let scopedProjectIds = null;
+    if (user_role && user_role !== 'Admin') {
+      let pq = db('projects').select('id');
+      if (csm_id)        pq = pq.where('csm_id', csm_id);
+      else if (pm_id)    pq = pq.where('pm_id', pm_id);
+      else if (owner_id) pq = pq.where('owner_id', owner_id);
+      else if (user_id)  pq = pq.where(function () {
+        this.where('owner_id', user_id).orWhere('csm_id', user_id).orWhere('pm_id', user_id);
+      });
+      scopedProjectIds = (await pq).map(r => r.id);
+      if (scopedProjectIds.length === 0) return res.json(EMPTY);
+    }
+
+    // ── Additional dimension filters ──────────────────────────────────────────
+    const hasExtraFilters = status || priority || project_type || client ||
+      created_from || created_to || go_live_from || go_live_to;
+    if (hasExtraFilters) {
+      let fq = db('projects').select('id');
+      if (scopedProjectIds !== null) fq = fq.whereIn('id', scopedProjectIds);
+      if (status)       fq = fq.whereIn('status', String(status).split(',').filter(Boolean));
+      if (priority)     fq = fq.whereIn('priority', String(priority).split(',').filter(Boolean));
+      if (project_type) fq = fq.where('project_type', project_type);
+      if (client)       fq = fq.whereRaw('LOWER(client_name) LIKE ?', [`%${String(client).toLowerCase()}%`]);
+      if (created_from) fq = fq.where('created_at', '>=', created_from);
+      if (created_to)   fq = fq.where('created_at', '<=', created_to + ' 23:59:59');
+      if (go_live_from) fq = fq.where('go_live_deadline', '>=', go_live_from);
+      if (go_live_to)   fq = fq.where('go_live_deadline', '<=', go_live_to);
+      scopedProjectIds = (await fq).map(r => r.id);
+      if (scopedProjectIds.length === 0) return res.json(EMPTY);
+    }
+
+    const applyScope = (q, col = 'project_id') =>
+      scopedProjectIds ? q.whereIn(col, scopedProjectIds) : q;
+
+    // ── Fetch all scoped projects with WBS plans ───────────────────────────────
+    let projectsQ = db('projects').select(
+      'id', 'name', 'client_name', 'status', 'go_live_deadline',
+      'priority', 'project_type', 'project_plan', 'created_at',
+      'project_start_date', 'csm_id', 'pm_id', 'owner_id'
+    );
+    if (scopedProjectIds) projectsQ = projectsQ.whereIn('id', scopedProjectIds);
+    const allProjects = await projectsQ;
+
+    // ── Parse WBS tasks from project_plan JSON ─────────────────────────────────
+    const wbsStatusMap = {};
+    const projectWbsStats = {};
+    const wbsBlockedTaskList = [];
+    const wbsOverdueTaskList = [];
+    for (const p of allProjects) {
+      if (!p.project_plan) continue;
+      try {
+        const plan = JSON.parse(p.project_plan);
+        let total = 0, done = 0, inProgress = 0, blocked = 0, overdue = 0;
+        for (const task of plan) {
+          if (['Phase', 'Summary'].includes(task.type || '')) continue;
+          total++;
+          const st = task.status || 'not_started';
+          wbsStatusMap[st] = (wbsStatusMap[st] || 0) + 1;
+          if (st === 'completed')   done++;
+          if (st === 'in_progress') inProgress++;
+          if (st === 'blocked') {
+            blocked++;
+            wbsBlockedTaskList.push({
+              projectId: p.id, projectName: p.name, clientName: p.client_name,
+              taskName: task.name || '(unnamed)', wbs: task.wbs || '',
+              ownerRole: task.owner_role || task.assigned_to || '',
+              plannedEnd: (task.planned_end || '').split('T')[0].split(' ')[0] || null,
+            });
+          }
+          const taskEnd = (task.planned_end || '').split('T')[0].split(' ')[0];
+          if (taskEnd && taskEnd < today && st !== 'completed') {
+            overdue++;
+            wbsOverdueTaskList.push({
+              projectId: p.id, projectName: p.name, clientName: p.client_name,
+              taskName: task.name || '(unnamed)', wbs: task.wbs || '',
+              ownerRole: task.owner_role || task.assigned_to || '',
+              plannedEnd: taskEnd,
+              status: st,
+            });
+          }
+        }
+        projectWbsStats[p.id] = {
+          total, done, inProgress, blocked, overdue,
+          name: p.name, client_name: p.client_name, status: p.status,
+          go_live_deadline: p.go_live_deadline, priority: p.priority,
+          pct: total > 0 ? Math.round((done / total) * 100) : 0,
+        };
+      } catch { /* skip malformed */ }
+    }
+
+    const wbsTasksByStatus = Object.entries(wbsStatusMap)
+      .map(([status, count]) => ({ status, count }));
+    const wbsOverdueCount = Object.values(projectWbsStats).reduce((s, p) => s + p.overdue, 0);
+    const wbsBlockedCount = Object.values(projectWbsStats).reduce((s, p) => s + p.blocked, 0);
+
+    // At-risk projects (most overdue + blocked)
+    const atRiskProjects = Object.entries(projectWbsStats)
+      .filter(([, s]) => s.overdue > 0 || s.blocked > 0)
+      .sort(([, a], [, b]) => (b.overdue + b.blocked * 2) - (a.overdue + a.blocked * 2))
+      .slice(0, 8)
+      .map(([id, s]) => ({ id: parseInt(id), ...s }));
+
+    // Project completion health: top 10 by completion %
+    const projectHealth = Object.entries(projectWbsStats)
+      .filter(([, s]) => s.total > 0 && ['ACTIVE', 'APPROVED'].includes(s.status))
+      .sort(([, a], [, b]) => b.pct - a.pct)
+      .slice(0, 10)
+      .map(([id, s]) => ({ id: parseInt(id), ...s }));
+
+    // ── Upcoming Go-Live (next 45 days) ─────────────────────────────────────────
+    const in45 = new Date(); in45.setDate(in45.getDate() + 45);
+    let glQ = db('projects')
+      .select('id', 'name', 'client_name', 'status', 'go_live_deadline', 'priority')
+      .whereNotNull('go_live_deadline')
+      .where('go_live_deadline', '>=', today)
+      .where('go_live_deadline', '<=', in45.toISOString().split('T')[0])
+      .orderBy('go_live_deadline', 'asc').limit(10);
+    if (scopedProjectIds) glQ = glQ.whereIn('id', scopedProjectIds);
+    const upcomingGoLive = await glQ;
+
+    // ── Weekly activity trend (last 8 weeks) ────────────────────────────────────
+    const since8w = new Date(); since8w.setDate(since8w.getDate() - 57);
+    let dailyAcQ = db('activity_log')
+      .select(db.raw("substr(created_at, 1, 10) as day"), db.raw('COUNT(*) as cnt'))
+      .where('created_at', '>=', since8w.toISOString().split('T')[0])
+      .groupByRaw("substr(created_at, 1, 10)")
+      .orderBy('day');
+    if (scopedProjectIds) dailyAcQ = dailyAcQ.whereIn('project_id', scopedProjectIds);
+    const dailyActivity = await dailyAcQ;
+
+    const weeklyActivityTrend = Array.from({ length: 8 }, (_, i) => {
+      const wEnd   = new Date(); wEnd.setDate(wEnd.getDate() - i * 7);
+      const wStart = new Date(wEnd); wStart.setDate(wStart.getDate() - 7);
+      const startStr = wStart.toISOString().split('T')[0];
+      const endStr   = wEnd.toISOString().split('T')[0];
+      const count = dailyActivity
+        .filter(d => d.day >= startStr && d.day < endStr)
+        .reduce((s, d) => s + Number(d.cnt), 0);
+      const label = wEnd.toLocaleString('en-US', { month: 'short', day: 'numeric' });
+      return { week: startStr, label, count };
+    }).reverse();
+
+    // ── Standard SQL aggregations ────────────────────────────────────────────────
+    const [
+      projectsByStatus,
+      tasksByStatus,
+      overdueTasksRaw,
+      recentActivity,
+      milestoneStats,
+      goLiveRaw,
+      activeProjectsRaw,
+      blockedTasksRaw,
+      myTasksRaw,
+      byTypeRaw,
+      byPriorityRaw,
+      createdRaw,
+      topClientsRaw,
+      stageVelocityRaw,
+      csmWorkloadRaw,
+      pmWorkloadRaw,
+    ] = await Promise.all([
+      (() => {
+        let q = db('projects').select('status', db.raw('COUNT(*) as count')).groupBy('status');
+        if (scopedProjectIds) q = q.whereIn('id', scopedProjectIds);
+        return q;
+      })(),
+      applyScope(db('tasks').select('status', db.raw('COUNT(*) as count')).groupBy('status')),
+      applyScope(db('tasks').where('status', '!=', 'completed').whereNotNull('due_date').where('due_date', '<', today).count('* as count')),
+      applyScope(db('activity_log').select('action', db.raw('COUNT(*) as count')).where('created_at', '>=', sinceStr).groupBy('action').orderBy('count', 'desc').limit(12)),
+      applyScope(db('milestones').select('status', db.raw('COUNT(*) as count')).groupBy('status')),
+      (() => {
+        const ms = new Date(); ms.setDate(1);
+        const me = new Date(ms.getFullYear(), ms.getMonth() + 1, 0);
+        let q = db('projects').whereNotNull('go_live_deadline')
+          .where('go_live_deadline', '>=', ms.toISOString().split('T')[0])
+          .where('go_live_deadline', '<=', me.toISOString().split('T')[0])
+          .count('* as count');
+        if (scopedProjectIds) q = q.whereIn('id', scopedProjectIds);
+        return q;
+      })(),
+      (() => {
+        let q = db('projects').whereIn('status', ['ACTIVE', 'APPROVED']).count('* as count');
+        if (scopedProjectIds) q = q.whereIn('id', scopedProjectIds);
+        return q;
+      })(),
+      applyScope(db('tasks').where('status', 'blocked').count('* as count')),
+      user_id && user_role !== 'Admin'
+        ? db('tasks').where('owner_id', user_id).select('status', db.raw('COUNT(*) as count')).groupBy('status')
+        : Promise.resolve([]),
+      (() => {
+        let q = db('projects').select('project_type', db.raw('COUNT(*) as count')).whereNotNull('project_type').groupBy('project_type');
+        if (scopedProjectIds) q = q.whereIn('id', scopedProjectIds);
+        return q;
+      })(),
+      (() => {
+        let q = db('projects').whereNotNull('priority').whereNot('priority', '').select('priority', db.raw('COUNT(*) as count')).groupBy('priority');
+        if (scopedProjectIds) q = q.whereIn('id', scopedProjectIds);
+        return q;
+      })(),
+      (() => {
+        let q = db('projects').where('created_at', '>=', sinceStr).count('* as count');
+        if (scopedProjectIds) q = q.whereIn('id', scopedProjectIds);
+        return q;
+      })(),
+      // Top clients by project count
+      (() => {
+        let q = db('projects').whereNotNull('client_name').whereNot('client_name', '')
+          .select('client_name', db.raw('COUNT(*) as count')).groupBy('client_name').orderBy('count', 'desc').limit(8);
+        if (scopedProjectIds) q = q.whereIn('id', scopedProjectIds);
+        return q;
+      })(),
+      // Stage velocity — transitions in the period
+      applyScope(
+        db('activity_log').select('action', db.raw('COUNT(*) as count'))
+          .where('action', 'stage_transition').where('created_at', '>=', sinceStr)
+          .count('* as count')
+      ),
+      // CSM workload (admin-level view)
+      (() => {
+        let q = db('projects').whereNotNull('projects.csm_id')
+          .leftJoin('users as csm', 'projects.csm_id', 'csm.id')
+          .select(
+            'csm.name as name',
+            db.raw('COUNT(projects.id) as total'),
+            db.raw('SUM(CASE WHEN projects.status IN ("ACTIVE","APPROVED") THEN 1 ELSE 0 END) as active_count')
+          )
+          .groupBy('csm.name').orderBy('total', 'desc').limit(10);
+        if (scopedProjectIds) q = q.whereIn('projects.id', scopedProjectIds);
+        return q;
+      })(),
+      // PM workload (admin-level view)
+      (() => {
+        let q = db('projects').whereNotNull('projects.pm_id')
+          .leftJoin('users as pm', 'projects.pm_id', 'pm.id')
+          .select(
+            'pm.name as name',
+            db.raw('COUNT(projects.id) as total'),
+            db.raw('SUM(CASE WHEN projects.status IN ("ACTIVE","APPROVED") THEN 1 ELSE 0 END) as active_count')
+          )
+          .groupBy('pm.name').orderBy('total', 'desc').limit(10);
+        if (scopedProjectIds) q = q.whereIn('projects.id', scopedProjectIds);
+        return q;
+      })(),
+    ]);
+
+    // ── Average age of active/approved projects ──────────────────────────────────
+    const activeProjs = allProjects.filter(p => ['ACTIVE', 'APPROVED'].includes(p.status));
+    const avgProjectAgeDays = activeProjs.length > 0
+      ? Math.round(activeProjs.reduce((s, p) => {
+          const raw = (p.created_at || '').split('T')[0].split(' ')[0];
+          const d = new Date(raw + 'T00:00:00');
+          return s + (Date.now() - d.getTime()) / 86400000;
+        }, 0) / activeProjs.length)
+      : 0;
+
+    res.json({
+      period:            parseInt(period),
+      scopedRole:        user_role || 'Admin',
+      totalProjects:     allProjects.length,
+      projectsByStatus,
+      tasksByStatus,
+      wbsTasksByStatus,
+      wbsOverdueCount,
+      wbsBlockedCount,
+      wbsBlockedTaskList,
+      wbsOverdueTaskList,
+      overdueTasks:      Number(overdueTasksRaw[0]?.count || 0),
+      blockedTasks:      Number(blockedTasksRaw[0]?.count || 0),
+      recentActivity,
+      weeklyActivityTrend,
+      milestoneStats,
+      goLiveThisMonth:   Number(goLiveRaw[0]?.count || 0),
+      activeProjects:    Number(activeProjectsRaw[0]?.count || 0),
+      myTasksByStatus:   myTasksRaw,
+      byType:            byTypeRaw,
+      byPriority:        byPriorityRaw,
+      upcomingGoLive,
+      atRiskProjects,
+      projectHealth,
+      createdThisPeriod: Number(createdRaw[0]?.count || 0),
+      avgProjectAgeDays,
+      topClients:        topClientsRaw,
+      stageVelocity:     Number(stageVelocityRaw[0]?.count || 0),
+      csmWorkload:       csmWorkloadRaw,
+      pmWorkload:        pmWorkloadRaw,
+    });
+  } catch (error) {
+    console.error('Error fetching analytics:', error);
+    res.status(500).json({ error: 'Failed to fetch analytics' });
+  }
+});
+
 module.exports = router;

@@ -499,7 +499,9 @@ router.post('/:id/set-start-date', async (req, res) => {
 // helper: advance a date string by N working days (Mon-Fri only)
 function addWorkingDaysServer(startDateStr, days) {
   if (!days || days <= 0) return startDateStr;
-  const date = new Date(startDateStr + 'T00:00:00');
+  // Normalize: strip time component so SQLite "2025-01-15 00:00:00" parses correctly
+  const clean = (startDateStr || '').split('T')[0].split(' ')[0];
+  const date = new Date(clean + 'T00:00:00');
   let added = 0;
   while (added < days) {
     date.setDate(date.getDate() + 1);
@@ -513,8 +515,10 @@ function addWorkingDaysServer(startDateStr, days) {
 router.put('/:id/start-date', async (req, res) => {
   try {
     const { id } = req.params;
-    const { start_date, reason, changed_by_name, is_initial, total_days } = req.body;
+    let { start_date, reason, changed_by_name, is_initial, total_days } = req.body;
     if (!start_date) return res.status(400).json({ error: 'start_date is required' });
+    // Normalize date to YYYY-MM-DD regardless of what client or SQLite sends
+    start_date = start_date.split('T')[0].split(' ')[0];
     if (!is_initial && (!reason || reason.trim().length < 5)) {
       return res.status(400).json({ error: 'A clear reason is required (min 5 characters)' });
     }

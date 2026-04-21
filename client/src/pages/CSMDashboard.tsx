@@ -17,6 +17,7 @@ interface WBSTask {
   day_end: number;
   duration_days: number;
   owner_role: string;
+  type?: string;
   status: string;
   tentative: boolean;
   total_working_days: number;
@@ -647,6 +648,7 @@ interface Task {
   title: string;
   status: string;
   due_date?: string;
+  completion_date?: string;
   project_id?: number;
   project_name?: string;
 }
@@ -1247,6 +1249,7 @@ const CSMDashboard: React.FC = () => {
   const [loading, setLoading]     = useState(true);
   const [activeFilter, setActiveFilter] = useState('ALL');
   const [quickDates, setQuickDates] = useState<Record<number, string>>({});
+  const [showCompletedTasks, setShowCompletedTasks] = useState(false);
 
   // Welcome + tour
   const [showWelcome, setShowWelcome] = useState(false);
@@ -1381,7 +1384,10 @@ const CSMDashboard: React.FC = () => {
       await fetch(`http://localhost:3001/api/tasks/${taskId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: next }),
+        body: JSON.stringify({
+          status: next,
+          ...(next === 'completed' ? { completion_date: new Date().toISOString().split('T')[0] } : {}),
+        }),
       });
       setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: next } : t));
     } catch (e) { console.error(e); }
@@ -1406,6 +1412,15 @@ const CSMDashboard: React.FC = () => {
         </svg>
       ),
     },
+    {
+      label: 'Analytics',
+      path: '/analytics',
+      icon: (
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+        </svg>
+      ),
+    },
   ];
 
   const FILTERS = [
@@ -1413,7 +1428,43 @@ const CSMDashboard: React.FC = () => {
     { key: 'AWAITING_APPROVAL', label: 'Incoming'       },
     { key: 'APPROVED',          label: 'Ready to Start' },
     { key: 'ACTIVE',            label: 'Active'         },
+    { key: 'AT_RISK',           label: 'At Risk'        },
   ];
+
+  // ── At-Risk helpers (CSM scope — only their projects) ──────────────────────
+  function computeCSMRiskSignals(project: Project): { signals: { label: string; severity: string }[]; riskScore: number } {
+    let wbsTasks: WBSTask[] = [];
+    try { const p = JSON.parse((project as any).project_plan || '[]'); wbsTasks = Array.isArray(p) ? p : []; } catch {}
+    const allT    = wbsTasks.filter(t => t.type === 'Task' || t.type === 'Deliverable');
+    const blocked = allT.filter(t => t.status === 'blocked').length;
+    const completed = allT.filter(t => t.status === 'completed').length;
+    const progress  = allT.length > 0 ? Math.round((completed / allT.length) * 100) : 0;
+    const clientPending = wbsTasks.filter(t =>
+      (t.owner_role === 'Client' || t.type === 'Client Requirement') && t.status !== 'completed'
+    ).length;
+
+    const signals: { label: string; severity: string }[] = [];
+    let riskScore = 0;
+    if (blocked > 0)        { signals.push({ label: `${blocked} blocked`, severity: 'high' });   riskScore += blocked * 20; }
+    if (!(project as any).project_start_date && project.status === 'ACTIVE')
+                             { signals.push({ label: 'No start date', severity: 'high' });        riskScore += 30; }
+    if (clientPending >= 3) { signals.push({ label: `${clientPending} client pending`, severity: 'medium' }); riskScore += clientPending * 5; }
+    if (project.status === 'ACTIVE' && progress < 20 && allT.length > 0)
+                             { signals.push({ label: `${progress}% done`, severity: 'medium' }); riskScore += 20; }
+    if (project.go_live_deadline) {
+      const days = Math.ceil((new Date(project.go_live_deadline).getTime() - Date.now()) / 86400000);
+      if (days < 7 && progress < 80) { signals.push({ label: `Go-live in ${days}d`, severity: 'high' }); riskScore += 40; }
+    }
+    return { signals, riskScore: Math.min(riskScore, 100) };
+  }
+
+  const atRiskMyProjects = React.useMemo(() =>
+    myProjects
+      .filter(p => ['ACTIVE','APPROVED'].includes(p.status))
+      .map(p => ({ project: p, ...computeCSMRiskSignals(p) }))
+      .filter(r => r.signals.length > 0)
+      .sort((a, b) => b.riskScore - a.riskScore)
+  , [myProjects]);
 
   return (
     <>
@@ -1563,15 +1614,67 @@ const CSMDashboard: React.FC = () => {
                       activeFilter === f.key ? 'bg-indigo-600 text-white shadow-sm' : 'bg-white text-gray-500 border border-gray-200 hover:border-indigo-300 hover:text-indigo-600'
                     }`}>
                     {f.label}
-                    <span className="ml-1.5 opacity-70">
-                      {f.key === 'ALL' ? myProjects.length : myProjects.filter(p => p.status === f.key).length}
-                    </span>
+                    {f.key === 'AT_RISK' ? (
+                      atRiskMyProjects.length > 0 && (
+                        <span className="ml-1.5 bg-amber-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">{atRiskMyProjects.length}</span>
+                      )
+                    ) : (
+                      <span className="ml-1.5 opacity-70">
+                        {f.key === 'ALL' ? myProjects.length : myProjects.filter(p => p.status === f.key).length}
+                      </span>
+                    )}
                   </button>
                 ))}
               </div>
 
+              {/* At-Risk view */}
+              {activeFilter === 'AT_RISK' ? (
+                loading ? (
+                  <div className="flex items-center justify-center py-20 text-gray-400 text-sm">Loading…</div>
+                ) : atRiskMyProjects.length === 0 ? (
+                  <div className="bg-white rounded-2xl border border-dashed border-emerald-200 p-12 text-center">
+                    <div className="w-10 h-10 rounded-full bg-emerald-50 flex items-center justify-center mx-auto mb-2">
+                      <svg className="w-5 h-5 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                    </div>
+                    <p className="text-sm font-semibold text-emerald-700">All your projects look healthy</p>
+                    <p className="text-xs text-gray-400 mt-1">No risk signals detected</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2 p-3 bg-amber-50 border border-amber-100 rounded-xl">
+                      <svg className="w-4 h-4 text-amber-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                      <p className="text-xs font-semibold text-amber-700">{atRiskMyProjects.length} project{atRiskMyProjects.length > 1 ? 's' : ''} need your attention</p>
+                    </div>
+                    {atRiskMyProjects.map(({ project, signals, riskScore }) => (
+                      <motion.div key={project.id} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+                        onClick={() => navigate(`/project/${project.id}`)}
+                        className={`bg-white rounded-2xl border p-4 cursor-pointer hover:shadow-md transition-all ${signals.some(s => s.severity === 'high') ? 'border-red-200' : 'border-amber-200'}`}>
+                        <div className="flex items-start justify-between gap-3 mb-2">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-bold text-gray-900 truncate">{project.name}</p>
+                            <p className="text-xs text-gray-500">{project.client_name}</p>
+                          </div>
+                          <div className={`w-9 h-9 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${riskScore >= 60 ? 'border-red-300' : 'border-amber-300'}`}>
+                            <span className={`text-[11px] font-bold ${riskScore >= 60 ? 'text-red-600' : 'text-amber-600'}`}>{riskScore}</span>
+                          </div>
+                        </div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {signals.map((sig, i) => (
+                            <span key={i} className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full ${sig.severity === 'high' ? 'bg-red-50 text-red-700' : 'bg-amber-50 text-amber-700'}`}>
+                              <span className={`w-1.5 h-1.5 rounded-full ${sig.severity === 'high' ? 'bg-red-500' : 'bg-amber-400'}`} />
+                              {sig.label}
+                            </span>
+                          ))}
+                        </div>
+                        <p className="text-[10px] text-indigo-500 font-semibold mt-2 text-right">View project →</p>
+                      </motion.div>
+                    ))}
+                  </div>
+                )
+              ) : null}
+
               {/* Project list */}
-              {loading ? (
+              {activeFilter !== 'AT_RISK' && (loading ? (
                 <div className="flex items-center justify-center py-20 text-gray-400 text-sm">Loading…</div>
               ) : filtered.length === 0 ? (
                 <div className="bg-white rounded-2xl border border-dashed border-gray-200 p-12 text-center">
@@ -1644,7 +1747,7 @@ const CSMDashboard: React.FC = () => {
                     );
                   })}
                 </div>
-              )}
+              ))}
             </div>
 
             {/* ── RIGHT: tasks, milestones, actions ────────────────────── */}
@@ -1721,47 +1824,72 @@ const CSMDashboard: React.FC = () => {
                 <div className="flex items-center justify-between mb-3">
                   <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">My Tasks</p>
                   <span className="text-[10px] font-bold text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">
-                    {tasks.filter(t => t.status !== 'completed').length} open · {tasks.filter(t => t.status === 'completed').length} done
+                    {tasks.filter(t => t.status !== 'completed').length} open
                   </span>
                 </div>
-                {tasks.length === 0 ? (
-                  <p className="text-xs text-gray-400 text-center py-4">No tasks assigned</p>
-                ) : (
-                  <div className="space-y-2">
-                    {tasks.slice(0, 8).map(t => {
-                      const isOverdue = !!(t.due_date && new Date(t.due_date) < new Date() && t.status !== 'completed');
-                      return (
-                        <div key={t.id}
-                          onClick={() => updateTaskStatus(t.id, t.status)}
-                          title="Click to update status"
-                          className="flex items-start gap-2.5 p-3 bg-gray-50 rounded-xl hover:bg-gray-100 transition-colors cursor-pointer">
-                          <div className={`w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 mt-0.5 transition-colors ${
-                            t.status === 'completed'   ? 'bg-emerald-500 border-emerald-500' :
-                            t.status === 'in_progress' ? 'border-blue-400 bg-blue-50' : 'border-gray-300'
-                          }`}>
-                            {t.status === 'completed' && (
-                              <svg className="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                              </svg>
-                            )}
-                            {t.status === 'in_progress' && <div className="w-1.5 h-1.5 rounded-full bg-blue-400" />}
+                {(() => {
+                  const openTasks = tasks.filter(t => t.status !== 'completed');
+                  const doneTasks = tasks.filter(t => t.status === 'completed');
+                  const visibleTasks = showCompletedTasks ? tasks.slice(0, 8) : openTasks.slice(0, 8);
+                  if (tasks.length === 0) return <p className="text-xs text-gray-400 text-center py-4">No tasks assigned</p>;
+                  return (
+                    <div className="space-y-2">
+                      {visibleTasks.map(t => {
+                        const isOverdue = !!(t.due_date && new Date(t.due_date) < new Date() && t.status !== 'completed');
+                        const isDone = t.status === 'completed';
+                        return (
+                          <div key={t.id}
+                            onClick={() => updateTaskStatus(t.id, t.status)}
+                            title={isDone ? 'Click to reopen' : 'Click to advance status'}
+                            className={`flex items-start gap-2.5 p-3 rounded-xl cursor-pointer transition-all ${
+                              isDone ? 'bg-emerald-50 hover:bg-emerald-100' : 'bg-gray-50 hover:bg-gray-100'
+                            }`}>
+                            <div className={`w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 mt-0.5 transition-colors ${
+                              isDone             ? 'bg-emerald-500 border-emerald-500' :
+                              t.status === 'in_progress' ? 'border-blue-400 bg-blue-50' : 'border-gray-300'
+                            }`}>
+                              {isDone && (
+                                <svg className="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                                </svg>
+                              )}
+                              {t.status === 'in_progress' && <div className="w-1.5 h-1.5 rounded-full bg-blue-400" />}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className={`text-xs font-medium leading-snug ${isDone ? 'text-emerald-700' : 'text-gray-800'}`}>{t.title}</p>
+                              {t.completion_date && isDone ? (
+                                <p className="text-[10px] mt-0.5 text-emerald-500">Completed {new Date(t.completion_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</p>
+                              ) : t.due_date ? (
+                                <p className={`text-[10px] mt-0.5 ${isOverdue ? 'text-red-500 font-semibold' : 'text-gray-400'}`}>
+                                  {isOverdue ? 'Overdue · ' : 'Due '}
+                                  {new Date(t.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                                </p>
+                              ) : null}
+                              {t.project_name && <p className="text-[10px] text-gray-400 mt-0.5 truncate">{t.project_name}</p>}
+                            </div>
                           </div>
-                          <div className="flex-1 min-w-0">
-                            <p className={`text-xs font-medium leading-snug ${t.status === 'completed' ? 'text-gray-400 line-through' : 'text-gray-800'}`}>{t.title}</p>
-                            {t.due_date && (
-                              <p className={`text-[10px] mt-0.5 ${isOverdue ? 'text-red-500 font-semibold' : 'text-gray-400'}`}>
-                                {isOverdue ? 'Overdue · ' : 'Due '}
-                                {new Date(t.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                              </p>
-                            )}
-                            {t.project_name && <p className="text-[10px] text-gray-400 mt-0.5 truncate">{t.project_name}</p>}
-                          </div>
-                          <span className="text-[9px] text-gray-300 mt-1 flex-shrink-0">tap</span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
+                        );
+                      })}
+                      {doneTasks.length > 0 && (
+                        <button
+                          onClick={() => setShowCompletedTasks(s => !s)}
+                          className="w-full py-2 text-[10px] font-semibold text-gray-400 hover:text-gray-600 transition-colors flex items-center justify-center gap-1.5"
+                        >
+                          {showCompletedTasks
+                            ? <>
+                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" /></svg>
+                                Hide completed
+                              </>
+                            : <>
+                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                                {doneTasks.length} completed — show
+                              </>
+                          }
+                        </button>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
 
               {/* Upcoming Milestones */}

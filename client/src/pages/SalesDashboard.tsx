@@ -67,7 +67,7 @@ const TOUR_STEPS: Array<{
   {
     id: 'stats',
     title: 'Pipeline at a Glance',
-    description: 'These numbers tell you exactly where your pipeline stands — total projects, active ones, and those awaiting CTO approval.',
+    description: 'These numbers tell you exactly where your pipeline stands — total projects, active ones, and those awaiting Admin approval.',
     position: 'bottom',
     anchor: 'stats',
   },
@@ -98,6 +98,15 @@ const NAV = [
     icon: (
       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+      </svg>
+    ),
+  },
+  {
+    label: 'Analytics',
+    path: '/analytics',
+    icon: (
+      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
       </svg>
     ),
   },
@@ -412,7 +421,7 @@ const SalesDashboard: React.FC = () => {
     { step: '1', label: 'Create Intake',       sublabel: 'Capture requirements',  color: 'from-indigo-500 to-indigo-600',  ring: 'ring-indigo-200'  },
     { step: '2', label: 'Schedule Meeting',    sublabel: 'Internal kickoff',       color: 'from-blue-500 to-blue-600',     ring: 'ring-blue-200'    },
     { step: '3', label: 'Submit Handover',     sublabel: 'MoM + SOW docs',         color: 'from-amber-500 to-amber-600',   ring: 'ring-amber-200'   },
-    { step: '4', label: 'Awaiting Approval',   sublabel: 'CTO reviews & decides',  color: 'from-violet-500 to-violet-600', ring: 'ring-violet-200'  },
+    { step: '4', label: 'Awaiting Approval',   sublabel: 'Admin reviews & decides',  color: 'from-violet-500 to-violet-600', ring: 'ring-violet-200'  },
   ];
 
   return (
@@ -555,7 +564,7 @@ const SalesDashboard: React.FC = () => {
               {[
                 { label: 'Total Projects',    value: stats.total,            color: 'text-gray-900',   sub: 'all time',            icon: '📁' },
                 { label: 'In Progress',       value: stats.inProgress,       color: 'text-blue-600',   sub: 'active pipeline',     icon: '⚡' },
-                { label: 'Awaiting Approval', value: stats.awaitingApproval, color: 'text-violet-600', sub: 'pending CTO decision', icon: '⏳' },
+                { label: 'Awaiting Approval', value: stats.awaitingApproval, color: 'text-violet-600', sub: 'pending Admin decision', icon: '⏳' },
               ].map((s, i) => (
                 <motion.div
                   key={s.label}
@@ -664,7 +673,7 @@ const SalesDashboard: React.FC = () => {
               {myAwaitingApproval.length > 0 && (
                 <InsightCard
                   type="info"
-                  title={`${myAwaitingApproval.length} project${myAwaitingApproval.length > 1 ? 's' : ''} with CTO`}
+                  title={`${myAwaitingApproval.length} project${myAwaitingApproval.length > 1 ? 's' : ''} pending Admin approval`}
                   description="Submitted for approval — no action needed from you"
                   actionLabel="View"
                   onAction={() => navigate('/projects')}
@@ -760,7 +769,7 @@ function getPendingOn(status: string, ownerName?: string, project?: Project): Pe
     case 'HANDOVER_PENDING':
       return { waitingOn: `Sales · ${owner}`, dotColor: 'bg-amber-400', badgeClass: 'bg-amber-50 text-amber-700 border-amber-200' };
     case 'AWAITING_APPROVAL':
-      return { waitingOn: 'CTO / Admin', dotColor: 'bg-violet-400', badgeClass: 'bg-violet-50 text-violet-700 border-violet-200' };
+      return { waitingOn: 'Admin', dotColor: 'bg-violet-400', badgeClass: 'bg-violet-50 text-violet-700 border-violet-200' };
     case 'APPROVED':
       return { waitingOn: `CSM · ${csm}`, dotColor: 'bg-emerald-400', badgeClass: 'bg-emerald-50 text-emerald-700 border-emerald-200' };
     default:

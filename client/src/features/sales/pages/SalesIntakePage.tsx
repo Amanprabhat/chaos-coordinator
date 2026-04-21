@@ -424,7 +424,7 @@ Agenda: Project handover, scope review, next steps.`
 
           <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}>
             <h2 className="text-2xl font-extrabold text-gray-900 mb-2">Project Created!</h2>
-            <p className="text-sm text-gray-500 mb-1">SOW and details have been sent to the CTO for approval.</p>
+            <p className="text-sm text-gray-500 mb-1">SOW and details have been sent to Admin for approval.</p>
             <p className="text-xs text-gray-400">Taking you back to the dashboard…</p>
           </motion.div>
 
