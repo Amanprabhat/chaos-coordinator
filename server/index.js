@@ -168,14 +168,16 @@ app.get('/api/users/all', async (req, res) => {
 // POST /api/users — create new user
 app.post('/api/users', async (req, res) => {
   try {
-    const { name, email, role, department, password } = req.body;
+    const { name, role, department, password } = req.body;
+    const email = (req.body.email || '').toLowerCase().trim();
     if (!name || !email || !role) return res.status(400).json({ error: 'name, email, role are required' });
-    const existing = await db('users').where({ email }).first();
+    const existing = await db('users').whereRaw('LOWER(email) = ?', [email]).first();
     if (existing) return res.status(409).json({ error: 'Email already exists' });
-    const password_hash = password ? await bcrypt.hash(password, 10) : await bcrypt.hash('changeme123', 10);
+    const defaultPassword = 'password123';
+    const password_hash = password ? await bcrypt.hash(password, 10) : await bcrypt.hash(defaultPassword, 10);
     const [id] = await db('users').insert({ name, email, role, department: department || null, password_hash, is_active: true });
     const user = await db('users').select('id', 'name', 'email', 'role', 'department', 'is_active').where({ id }).first();
-    res.status(201).json(user);
+    res.status(201).json({ ...user, _defaultPassword: password ? undefined : defaultPassword });
   } catch (e) { console.error(e); res.status(500).json({ error: 'Failed to create user' }); }
 });
 
@@ -485,6 +487,96 @@ app.put('/api/users/:id/assign-projects', async (req, res) => {
 
     res.json({ success: true });
   } catch (e) { console.error(e); res.status(500).json({ error: 'Failed to assign projects' }); }
+});
+
+// ── SharePoint Chatbot Search ─────────────────────────────────────────────────
+// POST /api/chatbot/search  { query: string }
+// Returns a list of matching documents from the configured SharePoint site.
+// Requires SHAREPOINT_TENANT_ID, SHAREPOINT_CLIENT_ID, SHAREPOINT_CLIENT_SECRET,
+// SHAREPOINT_HOSTNAME, SHAREPOINT_SITE_PATH in .env
+
+let _spTokenCache = null; // { access_token, expires_at }
+
+async function getSharePointToken() {
+  if (_spTokenCache && Date.now() < _spTokenCache.expires_at) return _spTokenCache.access_token;
+
+  const tenantId = process.env.SHAREPOINT_TENANT_ID;
+  const clientId = process.env.SHAREPOINT_CLIENT_ID;
+  const clientSecret = process.env.SHAREPOINT_CLIENT_SECRET;
+  if (!tenantId || !clientId || !clientSecret) throw new Error('SharePoint credentials not configured');
+
+  const tokenUrl = `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`;
+  const body = new URLSearchParams({
+    grant_type: 'client_credentials',
+    client_id: clientId,
+    client_secret: clientSecret,
+    scope: 'https://graph.microsoft.com/.default',
+  });
+
+  const res = await fetch(tokenUrl, { method: 'POST', body, headers: { 'Content-Type': 'application/x-www-form-urlencoded' } });
+  const data = await res.json();
+  if (!data.access_token) throw new Error(data.error_description || 'Failed to get token');
+
+  _spTokenCache = { access_token: data.access_token, expires_at: Date.now() + (data.expires_in - 60) * 1000 };
+  return data.access_token;
+}
+
+app.post('/api/chatbot/search', async (req, res) => {
+  try {
+    const { query } = req.body;
+    if (!query || !query.trim()) return res.status(400).json({ error: 'query is required' });
+
+    const token = await getSharePointToken();
+
+    // Use Graph Search API scoped to driveItems (files in SharePoint)
+    const hostname = process.env.SHAREPOINT_HOSTNAME || 'knowledgemax.sharepoint.com';
+    const sitePath = process.env.SHAREPOINT_SITE_PATH || '/sites/TechnicalDocumentationCenter';
+
+    // First resolve the site ID to scope the search
+    const siteRes = await fetch(
+      `https://graph.microsoft.com/v1.0/sites/${hostname}:${sitePath}`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    if (!siteRes.ok) throw new Error('Could not resolve SharePoint site');
+
+    // Search within the site drives
+    const searchRes = await fetch('https://graph.microsoft.com/v1.0/search/query', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        requests: [{
+          entityTypes: ['driveItem'],
+          query: { queryString: `${query.trim()} site:${hostname}${sitePath}` },
+          from: 0,
+          size: 8,
+          fields: ['name', 'webUrl', 'parentReference', 'lastModifiedDateTime', 'size', 'file'],
+        }],
+      }),
+    });
+
+    const searchData = await searchRes.json();
+    const hits = searchData?.value?.[0]?.hitsContainers?.[0]?.hits || [];
+
+    const results = hits.map((hit) => {
+      const r = hit.resource;
+      const webUrl = r.webUrl || '';
+      // Build a readable folder path
+      const parentPath = r.parentReference?.path?.replace('/drive/root:', '') || '/';
+      return {
+        name: r.name || 'Unknown',
+        webUrl,
+        folderPath: parentPath,
+        lastModified: r.lastModifiedDateTime || null,
+        summary: hit.summary || null,
+      };
+    });
+
+    res.json({ results, total: results.length, query: query.trim() });
+  } catch (e) {
+    console.error('Chatbot search error:', e.message);
+    // Return a graceful response so the widget can show a helpful message
+    res.status(200).json({ results: [], total: 0, error: e.message, query: req.body?.query || '' });
+  }
 });
 
 // GET /api/projects/:id/team-members — for @mention autocomplete in discussions

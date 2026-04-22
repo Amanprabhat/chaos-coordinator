@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import NotificationBell from '../components/NotificationBell';
 import DiscussionForum from '../components/DiscussionForum';
@@ -93,7 +93,7 @@ const PRIORITY_CONFIG: Record<string, { bg: string; text: string }> = {
   Low:    { bg: 'bg-emerald-100',text: 'text-emerald-700'},
 };
 
-const TASK_STATUS_CYCLE = ['not_started', 'in_progress', 'completed', 'blocked'] as const;
+const TASK_STATUS_CYCLE = ['not_started', 'in_progress', 'completed', 'blocked', 'not_required'] as const;
 const OWNER_ROLES = ['CSM', 'PM', 'Dev', 'QA', 'Client', 'Sales', 'Admin'];
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
@@ -174,11 +174,12 @@ const TeamMember: React.FC<{ role: string; name?: string | null }> = ({ role, na
 
 const StatusChip: React.FC<{ status: string; onClick?: () => void; editable?: boolean }> = ({ status, onClick, editable }) => {
   const cfg: Record<string, string> = {
-    not_started: 'bg-gray-100 text-gray-500',
-    in_progress: 'bg-blue-50 text-blue-600',
-    completed:   'bg-emerald-50 text-emerald-600',
-    blocked:     'bg-red-50 text-red-600',
-    tentative:   'bg-amber-50 text-amber-600',
+    not_started:   'bg-gray-100 text-gray-500',
+    in_progress:   'bg-blue-50 text-blue-600',
+    completed:     'bg-emerald-50 text-emerald-600',
+    blocked:       'bg-red-50 text-red-600',
+    tentative:     'bg-amber-50 text-amber-600',
+    not_required:  'bg-slate-100 text-slate-400 line-through',
   };
   return (
     <span
@@ -195,6 +196,7 @@ const StatusChip: React.FC<{ status: string; onClick?: () => void; editable?: bo
 const ProjectDashboard: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const { user, logout } = useAuth();
 
   // ── Core state ─────────────────────────────────────────────────────────────
@@ -203,7 +205,10 @@ const ProjectDashboard: React.FC = () => {
   const [risks, setRisks]           = useState<Risk[]>([]);
   const [loading, setLoading]       = useState(true);
   const [error, setError]           = useState<string | null>(null);
-  const [activeTab, setActiveTab]   = useState<'overview' | 'wbs' | 'gantt' | 'discussion'>('overview');
+  const [activeTab, setActiveTab]   = useState<'overview' | 'wbs' | 'gantt' | 'discussion'>(() => {
+    const t = new URLSearchParams(location.search).get('tab');
+    return (t === 'wbs' || t === 'gantt' || t === 'discussion') ? t : 'overview';
+  });
 
   // ── WBS edit state ─────────────────────────────────────────────────────────
   const [editMode, setEditMode]       = useState(false);
@@ -300,7 +305,30 @@ const ProjectDashboard: React.FC = () => {
   const cancelEdit = () => { setEditMode(false); setAddTaskSprint(null); setShowAddSprint(false); setEditingSprintNum(null); };
 
   const deleteTask = (taskId: number) => {
-    setLocalTasks(prev => prev.filter(t => t.id !== taskId));
+    setLocalTasks(prev => {
+      const deleted = prev.find(t => t.id === taskId);
+      if (!deleted) return prev;
+      const shift = deleted.duration_days;
+      const cutoff = deleted.day_end; // tasks starting after deleted.day_end shift back
+      const remaining = prev
+        .filter(t => t.id !== taskId)
+        .map(t => {
+          if (t.day_start > cutoff) {
+            const newStart = t.day_start - shift;
+            const newEnd   = t.day_end   - shift;
+            return {
+              ...t,
+              day_start: newStart,
+              day_end:   newEnd,
+              planned_start: project?.project_start_date ? addWorkingDays(project.project_start_date, newStart - 1) : t.planned_start,
+              planned_end:   project?.project_start_date ? addWorkingDays(project.project_start_date, newEnd   - 1) : t.planned_end,
+            };
+          }
+          return t;
+        });
+      const newMax = Math.max(...remaining.map(t => t.day_end), 0);
+      return remaining.map(t => ({ ...t, total_working_days: newMax }));
+    });
   };
 
   const addTaskToSprint = (sprintNum: number) => {
@@ -309,7 +337,6 @@ const ProjectDashboard: React.FC = () => {
     const lastTask = sprintTasks[sprintTasks.length - 1];
     const dayStart = lastTask ? lastTask.day_end + 1 : 1;
     const dayEnd = dayStart + taskForm.duration - 1;
-    const totalWD = tasks[0]?.total_working_days || 50;
     const sprintRef = localTasks.find(t => t.sprint === sprintNum);
     const newTask: WBSTask = {
       id: Date.now(),
@@ -326,11 +353,31 @@ const ProjectDashboard: React.FC = () => {
       owner_role: taskForm.ownerRole,
       status: 'not_started',
       tentative: !project?.project_start_date,
-      total_working_days: totalWD,
+      total_working_days: 0, // will be updated below
       planned_start: project?.project_start_date ? addWorkingDays(project.project_start_date, dayStart - 1) : undefined,
       planned_end:   project?.project_start_date ? addWorkingDays(project.project_start_date, dayEnd - 1)   : undefined,
     };
-    setLocalTasks(prev => [...prev, newTask]);
+    // Tasks that start after this sprint's last task must shift forward
+    const shift = taskForm.duration;
+    const insertAfterDay = lastTask ? lastTask.day_end : 0;
+    const updatedExisting = localTasks.map(t => {
+      if (t.day_start > insertAfterDay) {
+        const newStart = t.day_start + shift;
+        const newEnd   = t.day_end   + shift;
+        return {
+          ...t,
+          day_start: newStart,
+          day_end:   newEnd,
+          planned_start: project?.project_start_date ? addWorkingDays(project.project_start_date, newStart - 1) : t.planned_start,
+          planned_end:   project?.project_start_date ? addWorkingDays(project.project_start_date, newEnd   - 1) : t.planned_end,
+        };
+      }
+      return t;
+    });
+    const allTasks = [...updatedExisting, newTask];
+    const newTotalWD = Math.max(...allTasks.map(t => t.day_end));
+    const finalTasks = allTasks.map(t => ({ ...t, total_working_days: newTotalWD }));
+    setLocalTasks(finalTasks);
     setTaskForm({ name: '', ownerRole: 'CSM', duration: 2 });
     setAddTaskSprint(null);
   };
@@ -367,13 +414,37 @@ const ProjectDashboard: React.FC = () => {
     if (!id) return;
     setSavingPlan(true);
     try {
+      // Save WBS plan
       const res = await fetch(`http://localhost:3001/api/projects/${id}/plan`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ project_plan: localTasks }),
+        body: JSON.stringify({
+          project_plan: localTasks,
+          changed_by_id: user?.id,
+          changed_by_name: user?.name,
+          changed_by_role: user?.role,
+        }),
       });
       if (!res.ok) throw new Error('Save failed');
-      setProject(prev => prev ? { ...prev, project_plan: JSON.stringify(localTasks) } : prev);
+
+      // Auto-update go_live_deadline if we have a project start date
+      if (project?.project_start_date && localTasks.length > 0) {
+        const maxDayEnd = Math.max(...localTasks.map(t => t.day_end));
+        const newGoLive = addWorkingDays(project.project_start_date, maxDayEnd - 1);
+        try {
+          await fetch(`http://localhost:3001/api/projects/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ go_live_deadline: newGoLive }),
+          });
+          setProject(prev => prev ? { ...prev, project_plan: JSON.stringify(localTasks), go_live_deadline: newGoLive } : prev);
+        } catch {
+          setProject(prev => prev ? { ...prev, project_plan: JSON.stringify(localTasks) } : prev);
+        }
+      } else {
+        setProject(prev => prev ? { ...prev, project_plan: JSON.stringify(localTasks) } : prev);
+      }
+
       setEditMode(false);
     } catch (e) { alert('Failed to save plan. Please try again.'); }
     finally { setSavingPlan(false); }
@@ -386,13 +457,66 @@ const ProjectDashboard: React.FC = () => {
       setLocalTasks(prev => prev.map(t => t.id === task.id ? { ...t, status: newStatus } : t));
       return;
     }
-    const updated = tasks.map(t => t.id === task.id ? { ...t, status: newStatus } : t);
+
+    const prevStatus = task.status;
+    const wasNotRequired = prevStatus === 'not_required';
+    const isNowNotRequired = newStatus === 'not_required';
+
+    // Start with the status change applied
+    let updated = tasks.map(t => t.id === task.id ? { ...t, status: newStatus } : t);
+
+    // Shift subsequent tasks when toggling not_required
+    if (project?.project_start_date && wasNotRequired !== isNowNotRequired) {
+      const shift = isNowNotRequired ? -task.duration_days : task.duration_days;
+      // When marking not_required: shift tasks starting after this task ends
+      // When restoring: shift tasks starting after this task's start (to reclaim the gap)
+      const threshold = isNowNotRequired ? task.day_end : task.day_start;
+
+      updated = updated.map(t => {
+        if (t.id === task.id) return t;
+        if (t.day_start > threshold) {
+          const newDayStart = Math.max(1, t.day_start + shift);
+          const newDayEnd   = Math.max(newDayStart, t.day_end + shift);
+          return {
+            ...t,
+            day_start:     newDayStart,
+            day_end:       newDayEnd,
+            planned_start: addWorkingDays(project.project_start_date!, newDayStart - 1),
+            planned_end:   addWorkingDays(project.project_start_date!, newDayEnd   - 1),
+          };
+        }
+        return t;
+      });
+    }
+
     try {
       await fetch(`http://localhost:3001/api/projects/${id}/plan`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ project_plan: updated }),
+        body: JSON.stringify({
+          project_plan: updated,
+          changed_by_id: user?.id,
+          changed_by_name: user?.name,
+          changed_by_role: user?.role,
+        }),
       });
+
+      // Recalculate go_live_deadline excluding not_required tasks
+      if (project?.project_start_date) {
+        const activeTasks = updated.filter(t => t.status !== 'not_required' && t.day_end != null);
+        const maxDayEnd = activeTasks.length > 0 ? Math.max(...activeTasks.map(t => t.day_end)) : 0;
+        if (maxDayEnd > 0) {
+          const newGoLive = addWorkingDays(project.project_start_date, maxDayEnd - 1);
+          await fetch(`http://localhost:3001/api/projects/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ go_live_deadline: newGoLive }),
+          });
+          setProject(prev => prev ? { ...prev, project_plan: JSON.stringify(updated), go_live_deadline: newGoLive } : prev);
+          return;
+        }
+      }
+
       setProject(prev => prev ? { ...prev, project_plan: JSON.stringify(updated) } : prev);
     } catch { /* silent */ }
   };
@@ -1042,7 +1166,7 @@ const ProjectDashboard: React.FC = () => {
                                                       />
                                                     ) : (
                                                       <p
-                                                        className={`flex-1 text-xs min-w-0 truncate ${isMilestone ? 'font-semibold' : 'font-normal'} ${typeCfg.text}`}
+                                                        className={`flex-1 text-xs min-w-0 truncate ${isMilestone ? 'font-semibold' : 'font-normal'} ${typeCfg.text} ${task.status === 'not_required' ? 'line-through opacity-40' : ''}`}
                                                         title={task.notes ? `${task.name}\n\nNotes: ${task.notes}` : task.name}
                                                       >
                                                         {task.name}
@@ -1235,10 +1359,11 @@ const ProjectDashboard: React.FC = () => {
 
                 // Status → bar color override
                 const statusBarColor: Record<string, string> = {
-                  completed:   'bg-emerald-500',
-                  in_progress: 'bg-blue-500',
-                  blocked:     'bg-red-500',
-                  not_started: '',  // use sprint color
+                  completed:    'bg-emerald-500',
+                  in_progress:  'bg-blue-500',
+                  blocked:      'bg-red-500',
+                  not_started:  '',  // use sprint color
+                  not_required: 'bg-slate-300',
                 };
 
                 return (
@@ -1341,7 +1466,7 @@ const ProjectDashboard: React.FC = () => {
                                         ))}
                                         {/* Task bar */}
                                         <div
-                                          className={`absolute top-1.5 bottom-1.5 rounded ${barColor || 'bg-indigo-400'} flex items-center overflow-hidden opacity-90`}
+                                          className={`absolute top-1.5 bottom-1.5 rounded ${barColor || 'bg-indigo-400'} flex items-center overflow-hidden ${effectiveStatus === 'not_required' ? 'opacity-30' : 'opacity-90'}`}
                                           style={{ left: `${((task.day_start - 1) / totalDays) * 100}%`, width: `${(task.duration_days / totalDays) * 100}%`, minWidth: '3px' }}
                                         >
                                           <span className="text-[9px] text-white font-medium px-1.5 truncate">{task.name}</span>

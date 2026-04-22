@@ -113,6 +113,7 @@ const AnimatedNumber: React.FC<{ value: number; suffix?: string }> = ({ value, s
 // ─── Project Card ──────────────────────────────────────────────────────────────
 const ProjectCard: React.FC<{ project: Project; onClick: () => void; index: number }> = ({ project, onClick, index }) => {
   const [hovered, setHovered] = useState(false);
+  const [hoveredEl, setHoveredEl] = useState<string | null>(null);
   const tasks: WBSTask[] = React.useMemo(() => {
     if (!project.project_plan) return [];
     try { const p = JSON.parse(project.project_plan); return Array.isArray(p) ? p : []; }
@@ -131,8 +132,8 @@ const ProjectCard: React.FC<{ project: Project; onClick: () => void; index: numb
     <button
       onClick={onClick}
       onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      className="w-full text-left rounded-2xl overflow-hidden transition-all duration-300 client-card-enter group"
+      onMouseLeave={() => { setHovered(false); setHoveredEl(null); }}
+      className="w-full text-left rounded-2xl transition-all duration-300 client-card-enter group"
       style={{
         animationDelay: `${index * 100}ms`,
         transform: hovered ? 'translateY(-4px)' : 'translateY(0)',
@@ -142,7 +143,7 @@ const ProjectCard: React.FC<{ project: Project; onClick: () => void; index: numb
       }}
     >
       {/* Gradient top bar */}
-      <div className={`h-1.5 w-full bg-gradient-to-r ${statusCfg.gradient}`} />
+      <div className={`h-1.5 w-full rounded-t-2xl bg-gradient-to-r ${statusCfg.gradient}`} />
 
       <div className="bg-white border border-gray-100 border-t-0 rounded-b-2xl p-6">
         <div className="flex items-start justify-between gap-4 mb-5">
@@ -162,8 +163,20 @@ const ProjectCard: React.FC<{ project: Project; onClick: () => void; index: numb
           </span>
         </div>
 
-        {/* Progress */}
-        <div className="mb-5">
+        {/* Progress bar with tooltip */}
+        <div
+          className="mb-5 relative"
+          onMouseEnter={e => { e.stopPropagation(); setHoveredEl('progress'); }}
+          onMouseLeave={e => { e.stopPropagation(); setHoveredEl(null); }}
+        >
+          {hoveredEl === 'progress' && (
+            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-50 pointer-events-none">
+              <div className="bg-gray-900 text-white text-[11px] font-medium rounded-lg px-3 py-2 shadow-xl w-max max-w-[240px] whitespace-normal leading-snug">
+                {completed} of {allTasks.length} tasks completed
+              </div>
+              <div className="w-2 h-2 bg-gray-900 rotate-45 mx-auto -mt-1" />
+            </div>
+          )}
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs font-medium text-gray-400">Overall Progress</span>
             <span className="text-sm font-bold text-indigo-600">{progress}%</span>
@@ -186,7 +199,19 @@ const ProjectCard: React.FC<{ project: Project; onClick: () => void; index: numb
         {/* Bottom row */}
         <div className="flex items-center gap-3 text-xs">
           {clientPending > 0 && (
-            <span className="flex items-center gap-1.5 font-semibold text-amber-600 bg-amber-50 border border-amber-100 px-2.5 py-1.5 rounded-xl">
+            <span
+              className="relative flex items-center gap-1.5 font-semibold text-amber-600 bg-amber-50 border border-amber-100 px-2.5 py-1.5 rounded-xl"
+              onMouseEnter={e => { e.stopPropagation(); setHoveredEl('actions'); }}
+              onMouseLeave={e => { e.stopPropagation(); setHoveredEl(null); }}
+            >
+              {hoveredEl === 'actions' && (
+                <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-50 pointer-events-none">
+                  <span className="block bg-gray-900 text-white text-[11px] font-medium rounded-lg px-3 py-2 shadow-xl w-max max-w-[240px] whitespace-normal leading-snug">
+                    Tasks assigned to you pending completion
+                  </span>
+                  <span className="block w-2 h-2 bg-gray-900 rotate-45 mx-auto -mt-1" />
+                </span>
+              )}
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
@@ -194,7 +219,19 @@ const ProjectCard: React.FC<{ project: Project; onClick: () => void; index: numb
             </span>
           )}
           {daysToGoLive !== null && (
-            <span className={`flex items-center gap-1 ${daysToGoLive < 7 ? 'text-red-500' : daysToGoLive < 14 ? 'text-amber-500' : 'text-gray-400'}`}>
+            <span
+              className={`relative flex items-center gap-1 ${daysToGoLive < 7 ? 'text-red-500' : daysToGoLive < 14 ? 'text-amber-500' : 'text-gray-400'}`}
+              onMouseEnter={e => { e.stopPropagation(); setHoveredEl('golive'); }}
+              onMouseLeave={e => { e.stopPropagation(); setHoveredEl(null); }}
+            >
+              {hoveredEl === 'golive' && (
+                <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-50 pointer-events-none">
+                  <span className="block bg-gray-900 text-white text-[11px] font-medium rounded-lg px-3 py-2 shadow-xl w-max max-w-[240px] whitespace-normal leading-snug">
+                    Target go-live: {fmtDate(project.go_live_deadline)}
+                  </span>
+                  <span className="block w-2 h-2 bg-gray-900 rotate-45 mx-auto -mt-1" />
+                </span>
+              )}
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
               </svg>
@@ -214,9 +251,20 @@ const ProjectCard: React.FC<{ project: Project; onClick: () => void; index: numb
 };
 
 // ─── Project Detail View ───────────────────────────────────────────────────────
-const ProjectDetail: React.FC<{ project: Project; milestones: Milestone[]; onBack: () => void }> = ({ project, milestones, onBack }) => {
+const NOTIF_TAB_MAP: Record<string, 'overview' | 'tasks' | 'milestones' | 'discussion' | 'requests' | 'analytics'> = {
+  discussion_message:    'discussion',
+  task_overdue:          'tasks',
+  task_nudge_manager:    'tasks',
+  client_request_raised: 'requests',
+  project_approved:      'overview',
+  project_rejected:      'overview',
+};
+
+const ProjectDetail: React.FC<{ project: Project; milestones: Milestone[]; onBack: () => void; initialTab?: string }> = ({ project, milestones, onBack, initialTab }) => {
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState<'overview' | 'tasks' | 'milestones' | 'discussion' | 'requests'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'tasks' | 'milestones' | 'discussion' | 'requests' | 'analytics'>(
+    (initialTab as any) || 'overview'
+  );
 
   // ── Client requests state ────────────────────────────────────────────────
   const [requests, setRequests] = useState<ClientRequest[]>([]);
@@ -229,6 +277,15 @@ const ProjectDetail: React.FC<{ project: Project; milestones: Milestone[]; onBac
     title: '',
     description: '',
     priority: 'Medium',
+    // Bug-specific
+    steps_to_replicate: '',
+    evidence_url: '',
+    // New requirement-specific
+    use_case: '',
+    brd_notes: '',
+    // Change request-specific
+    change_reason: '',
+    impact_areas: '',
   });
   const formTitleRef = useRef<HTMLInputElement>(null);
 
@@ -253,6 +310,19 @@ const ProjectDetail: React.FC<{ project: Project; milestones: Milestone[]; onBac
     if (!reqForm.title.trim() || !reqForm.description.trim()) return;
     setSubmitting(true);
     try {
+      // Build enriched description based on type
+      let fullDescription = reqForm.description.trim();
+      if (reqForm.request_type === 'bug_report') {
+        if (reqForm.steps_to_replicate.trim()) fullDescription += `\n\n**Steps to Replicate:**\n${reqForm.steps_to_replicate.trim()}`;
+        if (reqForm.evidence_url.trim()) fullDescription += `\n\n**Evidence / URL:**\n${reqForm.evidence_url.trim()}`;
+      } else if (reqForm.request_type === 'new_requirement') {
+        if (reqForm.use_case.trim()) fullDescription += `\n\n**Use Case:**\n${reqForm.use_case.trim()}`;
+        if (reqForm.brd_notes.trim()) fullDescription += `\n\n**BRD / Requirements Notes:**\n${reqForm.brd_notes.trim()}`;
+      } else if (reqForm.request_type === 'change_request') {
+        if (reqForm.change_reason.trim()) fullDescription += `\n\n**Reason for Change:**\n${reqForm.change_reason.trim()}`;
+        if (reqForm.impact_areas.trim()) fullDescription += `\n\n**Impacted Areas:**\n${reqForm.impact_areas.trim()}`;
+      }
+
       await fetch(`http://localhost:3001/api/projects/${project.id}/client-requests`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -260,11 +330,14 @@ const ProjectDetail: React.FC<{ project: Project; milestones: Milestone[]; onBac
           client_user_id: user?.id,
           client_name: user?.name || 'Client',
           client_email: user?.email || '',
-          ...reqForm,
+          request_type: reqForm.request_type,
+          title: reqForm.title,
+          description: fullDescription,
+          priority: reqForm.priority,
         }),
       });
       setSubmitSuccess(true);
-      setReqForm({ request_type: 'new_requirement', title: '', description: '', priority: 'Medium' });
+      setReqForm({ request_type: 'new_requirement', title: '', description: '', priority: 'Medium', steps_to_replicate: '', evidence_url: '', use_case: '', brd_notes: '', change_reason: '', impact_areas: '' });
       await fetchRequests();
       setTimeout(() => { setShowRaiseForm(false); setSubmitSuccess(false); }, 1800);
     } finally { setSubmitting(false); }
@@ -294,6 +367,7 @@ const ProjectDetail: React.FC<{ project: Project; milestones: Milestone[]; onBac
     { id: 'milestones',  label: 'Milestones',  icon: 'M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7' },
     { id: 'discussion',  label: 'Discussion',  icon: 'M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z' },
     { id: 'requests',    label: 'My Requests', icon: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z', badge: requests.filter(r => r.status === 'approved').length },
+    { id: 'analytics',   label: 'Analytics',   icon: 'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z' },
   ] as const;
 
   return (
@@ -327,7 +401,8 @@ const ProjectDetail: React.FC<{ project: Project; milestones: Milestone[]; onBac
               </div>
             ) : (
               <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
-                {/* Request type */}
+
+                {/* Request type selector */}
                 <div>
                   <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-2">Request Type</label>
                   <div className="grid grid-cols-2 gap-2">
@@ -349,19 +424,139 @@ const ProjectDetail: React.FC<{ project: Project; milestones: Milestone[]; onBac
 
                 {/* Title */}
                 <div>
-                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1.5">Title <span className="text-red-400">*</span></label>
-                  <input ref={formTitleRef} value={reqForm.title} onChange={e => setReqForm(f => ({ ...f, title: e.target.value }))}
-                    placeholder="Brief summary of your request…"
+                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1.5">
+                    Title <span className="text-red-400">*</span>
+                  </label>
+                  <input ref={formTitleRef} value={reqForm.title}
+                    onChange={e => setReqForm(f => ({ ...f, title: e.target.value }))}
+                    placeholder="Brief summary…"
                     className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 text-gray-800 placeholder-gray-300" />
                 </div>
 
-                {/* Description */}
-                <div>
-                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1.5">Description <span className="text-red-400">*</span></label>
-                  <textarea value={reqForm.description} onChange={e => setReqForm(f => ({ ...f, description: e.target.value }))}
-                    rows={5} placeholder="Describe your request in detail — what you need, why it matters, any deadlines…"
-                    className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 text-gray-800 placeholder-gray-300 resize-none" />
-                </div>
+                {/* ── Bug Report fields ── */}
+                {reqForm.request_type === 'bug_report' && (
+                  <div className="space-y-4 bg-red-50 border border-red-100 rounded-2xl p-4">
+                    <p className="text-xs font-bold text-red-700 flex items-center gap-1.5">
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                      Bug Report Details
+                    </p>
+                    <div>
+                      <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1.5">
+                        What happened? <span className="text-red-400">*</span>
+                      </label>
+                      <textarea value={reqForm.description}
+                        onChange={e => setReqForm(f => ({ ...f, description: e.target.value }))}
+                        rows={3} placeholder="Describe the bug — what did you expect vs. what actually happened…"
+                        className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-red-200 text-gray-800 placeholder-gray-300 resize-none bg-white" />
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1.5">
+                        Steps to Replicate
+                      </label>
+                      <textarea value={reqForm.steps_to_replicate}
+                        onChange={e => setReqForm(f => ({ ...f, steps_to_replicate: e.target.value }))}
+                        rows={3} placeholder={"1. Go to...\n2. Click on...\n3. See error"}
+                        className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-red-200 text-gray-800 placeholder-gray-300 resize-none bg-white font-mono" />
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1.5">
+                        Evidence (video URL, screenshot link, document URL)
+                      </label>
+                      <input value={reqForm.evidence_url}
+                        onChange={e => setReqForm(f => ({ ...f, evidence_url: e.target.value }))}
+                        placeholder="https://drive.google.com/… or Loom link…"
+                        className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-red-200 text-gray-800 placeholder-gray-300 bg-white" />
+                      <p className="text-[10px] text-gray-400 mt-1">Paste a shareable link to a screen recording, screenshot, or document</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* ── New Requirement fields ── */}
+                {reqForm.request_type === 'new_requirement' && (
+                  <div className="space-y-4 bg-blue-50 border border-blue-100 rounded-2xl p-4">
+                    <p className="text-xs font-bold text-blue-700 flex items-center gap-1.5">
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v3m0 0v3m0-3h3m-3 0H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                      New Requirement Details
+                    </p>
+                    <div>
+                      <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1.5">
+                        What do you need? <span className="text-red-400">*</span>
+                      </label>
+                      <textarea value={reqForm.description}
+                        onChange={e => setReqForm(f => ({ ...f, description: e.target.value }))}
+                        rows={3} placeholder="Describe the requirement clearly — what functionality or change you need…"
+                        className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 text-gray-800 placeholder-gray-300 resize-none bg-white" />
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1.5">Use Case</label>
+                      <textarea value={reqForm.use_case}
+                        onChange={e => setReqForm(f => ({ ...f, use_case: e.target.value }))}
+                        rows={2} placeholder="As a [user], I want to [action] so that [outcome]…"
+                        className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 text-gray-800 placeholder-gray-300 resize-none bg-white" />
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1.5">BRD / Requirements Document (link)</label>
+                      <input value={reqForm.brd_notes}
+                        onChange={e => setReqForm(f => ({ ...f, brd_notes: e.target.value }))}
+                        placeholder="https://docs.google.com/… or Confluence link…"
+                        className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 text-gray-800 placeholder-gray-300 bg-white" />
+                      <p className="text-[10px] text-gray-400 mt-1">Link to any supporting BRD, spec doc, or reference material</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* ── Change Request fields ── */}
+                {reqForm.request_type === 'change_request' && (
+                  <div className="space-y-4 bg-violet-50 border border-violet-100 rounded-2xl p-4">
+                    <p className="text-xs font-bold text-violet-700 flex items-center gap-1.5">
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                      Change Request Details
+                    </p>
+                    <div>
+                      <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1.5">
+                        What needs to change? <span className="text-red-400">*</span>
+                      </label>
+                      <textarea value={reqForm.description}
+                        onChange={e => setReqForm(f => ({ ...f, description: e.target.value }))}
+                        rows={3} placeholder="Describe the change clearly — what is currently in scope and what you'd like modified…"
+                        className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-200 text-gray-800 placeholder-gray-300 resize-none bg-white" />
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1.5">Reason for Change</label>
+                      <textarea value={reqForm.change_reason}
+                        onChange={e => setReqForm(f => ({ ...f, change_reason: e.target.value }))}
+                        rows={2} placeholder="Why is this change needed? What business driver or constraint requires it?"
+                        className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-200 text-gray-800 placeholder-gray-300 resize-none bg-white" />
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1.5">Impacted Areas / Modules</label>
+                      <input value={reqForm.impact_areas}
+                        onChange={e => setReqForm(f => ({ ...f, impact_areas: e.target.value }))}
+                        placeholder="e.g. Login flow, Reporting module, API integration…"
+                        className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-200 text-gray-800 placeholder-gray-300 bg-white" />
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1.5">Supporting Document (link)</label>
+                      <input value={reqForm.brd_notes}
+                        onChange={e => setReqForm(f => ({ ...f, brd_notes: e.target.value }))}
+                        placeholder="https://drive.google.com/… spec sheet, mock-up, or approval email…"
+                        className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-200 text-gray-800 placeholder-gray-300 bg-white" />
+                    </div>
+                  </div>
+                )}
+
+                {/* ── Other / Additional Help — generic description ── */}
+                {(reqForm.request_type === 'additional_help' || reqForm.request_type === 'other') && (
+                  <div>
+                    <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1.5">
+                      Description <span className="text-red-400">*</span>
+                    </label>
+                    <textarea value={reqForm.description}
+                      onChange={e => setReqForm(f => ({ ...f, description: e.target.value }))}
+                      rows={5} placeholder="Describe your request in detail — what you need, why it matters, any deadlines…"
+                      className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 text-gray-800 placeholder-gray-300 resize-none" />
+                  </div>
+                )}
 
                 {/* Priority */}
                 <div>
@@ -372,9 +567,9 @@ const ProjectDetail: React.FC<{ project: Project; milestones: Milestone[]; onBac
                         className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all border ${
                           reqForm.priority === p
                             ? p === 'Critical' ? 'bg-red-500 text-white border-red-500'
-                              : p === 'High' ? 'bg-orange-400 text-white border-orange-400'
-                              : p === 'Medium' ? 'bg-amber-400 text-white border-amber-400'
-                              : 'bg-emerald-400 text-white border-emerald-400'
+                              : p === 'High'     ? 'bg-orange-400 text-white border-orange-400'
+                              : p === 'Medium'   ? 'bg-amber-400 text-white border-amber-400'
+                              :                    'bg-emerald-400 text-white border-emerald-400'
                             : 'border-gray-200 text-gray-500 hover:border-gray-300'
                         }`}>
                         {p}
@@ -673,6 +868,246 @@ const ProjectDetail: React.FC<{ project: Project; milestones: Milestone[]; onBac
         </div>
       )}
 
+      {activeTab === 'analytics' && (() => {
+        // analytics tab
+        const tasksByStatus = {
+          completed:    allTasks.filter(t => t.status === 'completed').length,
+          in_progress:  allTasks.filter(t => t.status === 'in_progress').length,
+          blocked:      allTasks.filter(t => t.status === 'blocked').length,
+          not_started:  allTasks.filter(t => t.status === 'not_started' || !t.status).length,
+          not_required: allTasks.filter(t => t.status === 'not_required').length,
+        };
+        const taskTotal = allTasks.length;
+
+        const reqByType: Record<string, number> = {};
+        const reqByStatus: Record<string, number> = {};
+        requests.forEach(r => {
+          reqByType[r.request_type]   = (reqByType[r.request_type]   || 0) + 1;
+          reqByStatus[r.status]       = (reqByStatus[r.status]       || 0) + 1;
+        });
+
+        const daysToGoLive  = getDaysUntil(project.go_live_deadline) ?? 0;
+        const hasGoLive     = !!project.go_live_deadline;
+        const daysActive    = project.project_start_date
+          ? Math.max(0, Math.ceil((Date.now() - new Date(project.project_start_date as string).getTime()) / 86400000))
+          : null;
+
+        const healthScore = (() => {
+          if (taskTotal === 0) return progress;
+          let score = progress;
+          if (tasksByStatus.blocked > 0) score -= tasksByStatus.blocked * 5;
+          if (hasGoLive && daysToGoLive < 0) score -= 20;
+          return Math.max(0, Math.min(100, Math.round(score)));
+        })();
+
+        const healthColor = healthScore >= 75 ? { ring: '#10b981', text: 'text-emerald-600', label: 'Healthy', bg: 'bg-emerald-50' }
+          : healthScore >= 40               ? { ring: '#f59e0b', text: 'text-amber-600',  label: 'Needs Attention', bg: 'bg-amber-50' }
+          :                                   { ring: '#ef4444', text: 'text-red-600',    label: 'At Risk', bg: 'bg-red-50' };
+
+        const TASK_BARS = [
+          { key: 'completed',    label: 'Completed',    count: tasksByStatus.completed,    color: 'bg-emerald-500' },
+          { key: 'in_progress',  label: 'In Progress',  count: tasksByStatus.in_progress,  color: 'bg-blue-500'    },
+          { key: 'not_started',  label: 'Not Started',  count: tasksByStatus.not_started,  color: 'bg-gray-300'    },
+          { key: 'blocked',      label: 'Blocked',      count: tasksByStatus.blocked,      color: 'bg-red-400'     },
+          { key: 'not_required', label: 'Not Required', count: tasksByStatus.not_required, color: 'bg-slate-200'   },
+        ].filter(b => b.count > 0);
+
+        const REQ_TYPE_COLORS: Record<string, string> = {
+          bug_report:      'bg-red-400',
+          new_requirement: 'bg-blue-500',
+          change_request:  'bg-violet-500',
+          additional_help: 'bg-emerald-500',
+          other:           'bg-gray-400',
+        };
+        const REQ_STATUS_COLORS: Record<string, string> = {
+          pending:      'bg-amber-400',
+          under_review: 'bg-blue-400',
+          approved:     'bg-emerald-500',
+          rejected:     'bg-red-400',
+          closed:       'bg-gray-400',
+        };
+
+        // SVG donut helper
+        const Donut = ({ pct, color, size = 80 }: { pct: number; color: string; size?: number }) => {
+          const r = (size - 10) / 2;
+          const circ = 2 * Math.PI * r;
+          const dash = (pct / 100) * circ;
+          return (
+            <svg width={size} height={size} className="-rotate-90">
+              <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="#f1f5f9" strokeWidth={8} />
+              <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={color} strokeWidth={8}
+                strokeDasharray={`${dash} ${circ}`} strokeLinecap="round"
+                style={{ transition: 'stroke-dasharray 1s ease' }} />
+            </svg>
+          );
+        };
+
+        return (
+          <div className="space-y-5">
+
+            {/* ── Health + KPI strip ──────────────────────────────────────── */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {/* Health score */}
+              <div className={`col-span-2 sm:col-span-1 ${healthColor.bg} rounded-2xl p-4 flex items-center gap-4 border border-white/60`}>
+                <div className="relative flex-shrink-0">
+                  <Donut pct={healthScore} color={healthColor.ring} size={72} />
+                  <span className={`absolute inset-0 flex items-center justify-center text-lg font-extrabold ${healthColor.text}`}>
+                    {healthScore}
+                  </span>
+                </div>
+                <div>
+                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Health Score</p>
+                  <p className={`text-sm font-bold mt-0.5 ${healthColor.text}`}>{healthColor.label}</p>
+                  {tasksByStatus.blocked > 0 && (
+                    <p className="text-[10px] text-red-500 mt-1">{tasksByStatus.blocked} task{tasksByStatus.blocked > 1 ? 's' : ''} blocked</p>
+                  )}
+                </div>
+              </div>
+
+              {/* Progress */}
+              <div className="bg-white border border-gray-100 rounded-2xl p-4 shadow-sm">
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Completion</p>
+                <div className="relative flex-shrink-0 flex items-center gap-3">
+                  <Donut pct={progress} color="#6366f1" size={56} />
+                  <div>
+                    <p className="text-xl font-extrabold text-indigo-600">{progress}%</p>
+                    <p className="text-[10px] text-gray-400">{tasksByStatus.completed}/{taskTotal} tasks</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Go-live */}
+              <div className={`bg-white border rounded-2xl p-4 shadow-sm ${hasGoLive && daysToGoLive < 7 ? 'border-red-200 bg-red-50/40' : 'border-gray-100'}`}>
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Go-Live</p>
+                <p className={`text-lg font-extrabold ${!hasGoLive ? 'text-gray-400' : daysToGoLive < 0 ? 'text-red-600' : daysToGoLive < 7 ? 'text-amber-600' : 'text-gray-800'}`}>
+                  {!hasGoLive ? '—' : daysToGoLive < 0 ? `${Math.abs(daysToGoLive)}d overdue` : `${daysToGoLive}d`}
+                </p>
+                <p className="text-[10px] text-gray-400 mt-0.5">{hasGoLive ? fmtDate(project.go_live_deadline) : 'Not set'}</p>
+              </div>
+
+              {/* Active days */}
+              <div className="bg-white border border-gray-100 rounded-2xl p-4 shadow-sm">
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Days Active</p>
+                <p className="text-lg font-extrabold text-gray-800">{daysActive !== null ? daysActive : '—'}</p>
+                <p className="text-[10px] text-gray-400 mt-0.5">{project.project_start_date ? `Since ${fmtDate(project.project_start_date)}` : 'Not started'}</p>
+              </div>
+            </div>
+
+            {/* ── Task breakdown ──────────────────────────────────────────── */}
+            {taskTotal > 0 && (
+              <div className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm">
+                <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-4">Task Breakdown</h3>
+                {/* Segmented bar */}
+                <div className="flex h-3 rounded-full overflow-hidden mb-4 gap-0.5">
+                  {TASK_BARS.map(b => (
+                    <div key={b.key} className={`${b.color} transition-all`} style={{ width: `${(b.count / taskTotal) * 100}%` }} title={`${b.label}: ${b.count}`} />
+                  ))}
+                </div>
+                <div className="space-y-2.5">
+                  {TASK_BARS.map(b => (
+                    <div key={b.key} className="flex items-center gap-3">
+                      <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${b.color}`} />
+                      <span className="text-xs text-gray-600 flex-1">{b.label}</span>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <div className="w-24 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                          <div className={`h-full ${b.color} rounded-full`} style={{ width: `${(b.count / taskTotal) * 100}%` }} />
+                        </div>
+                        <span className="text-xs font-bold text-gray-700 w-6 text-right">{b.count}</span>
+                        <span className="text-[10px] text-gray-400 w-8 text-right">{Math.round((b.count / taskTotal) * 100)}%</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* ── Request analytics ──────────────────────────────────────── */}
+            {requests.length > 0 ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {/* By type */}
+                <div className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm">
+                  <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-4">Requests by Type</h3>
+                  <div className="space-y-3">
+                    {Object.entries(reqByType).sort((a,b) => b[1]-a[1]).map(([type, count]) => {
+                      const meta = REQUEST_TYPE_LABELS[type] || REQUEST_TYPE_LABELS.other;
+                      const pctW = Math.round((count / requests.length) * 100);
+                      return (
+                        <div key={type} className="flex items-center gap-3">
+                          <div className={`w-2 h-2 rounded-full flex-shrink-0 ${REQ_TYPE_COLORS[type] || 'bg-gray-400'}`} />
+                          <span className="text-xs text-gray-600 flex-1 truncate">{meta.label}</span>
+                          <div className="flex items-center gap-2 flex-shrink-0">
+                            <div className="w-20 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                              <div className={`h-full rounded-full ${REQ_TYPE_COLORS[type] || 'bg-gray-400'}`} style={{ width: `${pctW}%` }} />
+                            </div>
+                            <span className="text-xs font-bold text-gray-700 w-4 text-right">{count}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* By status */}
+                <div className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm">
+                  <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-4">Requests by Status</h3>
+                  <div className="space-y-3">
+                    {Object.entries(reqByStatus).sort((a,b) => b[1]-a[1]).map(([status, count]) => {
+                      const meta = REQUEST_STATUS_META[status] || REQUEST_STATUS_META.pending;
+                      const pctW = Math.round((count / requests.length) * 100);
+                      return (
+                        <div key={status} className="flex items-center gap-3">
+                          <div className={`w-2 h-2 rounded-full flex-shrink-0 ${meta.dot}`} />
+                          <span className="text-xs text-gray-600 flex-1 truncate">{meta.label}</span>
+                          <div className="flex items-center gap-2 flex-shrink-0">
+                            <div className="w-20 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                              <div className={`h-full rounded-full ${REQ_STATUS_COLORS[status] || 'bg-gray-400'}`} style={{ width: `${pctW}%` }} />
+                            </div>
+                            <span className="text-xs font-bold text-gray-700 w-4 text-right">{count}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="bg-white border border-gray-100 rounded-2xl p-8 text-center shadow-sm">
+                <p className="text-xs font-semibold text-gray-400">No requests raised yet</p>
+                <p className="text-[11px] text-gray-300 mt-1">Request analytics will appear once you raise your first request.</p>
+              </div>
+            )}
+
+            {/* ── Milestones summary ─────────────────────────────────────── */}
+            {milestones.length > 0 && (
+              <div className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">Milestones</h3>
+                  <span className="text-xs font-bold text-indigo-600">{completedMilestones}/{milestones.length} done</span>
+                </div>
+                {/* Segmented milestone bar */}
+                <div className="flex h-2 rounded-full overflow-hidden bg-gray-100 mb-3">
+                  <div className="bg-emerald-500 rounded-full transition-all" style={{ width: `${(completedMilestones / milestones.length) * 100}%` }} />
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  {milestones.slice(0, 6).map(m => {
+                    const days = getDaysUntil(m.due_date);
+                    const isDone = m.status === 'completed';
+                    const isOver = !isDone && days !== null && days < 0;
+                    return (
+                      <div key={m.id} className={`flex items-center gap-2 p-2.5 rounded-xl border text-xs ${isDone ? 'bg-emerald-50 border-emerald-100' : isOver ? 'bg-red-50 border-red-100' : 'bg-gray-50 border-gray-100'}`}>
+                        <span className={`w-2 h-2 rounded-full flex-shrink-0 ${isDone ? 'bg-emerald-500' : isOver ? 'bg-red-400' : 'bg-gray-300'}`} />
+                        <span className={`truncate font-medium ${isDone ? 'text-emerald-700' : isOver ? 'text-red-600' : 'text-gray-600'}`}>{m.name}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+          </div>
+        );
+      })()}
+
       {activeTab === 'discussion' && (
         <DiscussionForum projectId={project.id} projectName={project.name} />
       )}
@@ -681,18 +1116,9 @@ const ProjectDetail: React.FC<{ project: Project; milestones: Milestone[]; onBac
       {activeTab === 'requests' && (
         <div className="space-y-4">
           {/* Header row */}
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="text-sm font-bold text-gray-800">My Requests</h3>
-              <p className="text-xs text-gray-400 mt-0.5">Track all your change requests and requirements</p>
-            </div>
-            <button onClick={() => setShowRaiseForm(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl transition-colors shadow-sm">
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-              </svg>
-              New Request
-            </button>
+          <div>
+            <h3 className="text-sm font-bold text-gray-800">My Requests</h3>
+            <p className="text-xs text-gray-400 mt-0.5">Track all your change requests and requirements. Use "Raise Request" above to submit a new one.</p>
           </div>
 
           {loadingReqs ? (
@@ -791,29 +1217,449 @@ const StatCard: React.FC<{
   gradient: string;
   highlight?: boolean;
   index: number;
-}> = ({ label, value, suffix, icon, gradient, highlight, index }) => (
-  <div
-    className={`relative overflow-hidden rounded-2xl p-5 client-card-enter`}
-    style={{
-      animationDelay: `${index * 80}ms`,
-      background: highlight && value > 0
-        ? 'linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%)'
-        : 'white',
-      border: highlight && value > 0 ? '1px solid #fcd34d' : '1px solid #f1f5f9',
-      boxShadow: highlight && value > 0 ? '0 4px 20px rgba(251,191,36,0.15)' : '0 2px 8px rgba(0,0,0,0.04)',
-    }}
-  >
-    <div className="flex items-start justify-between mb-3">
-      <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest leading-tight">{label}</p>
-      <div className={`w-9 h-9 rounded-xl bg-gradient-to-br ${gradient} flex items-center justify-center shadow-sm`}>
-        {icon}
+  tooltip: string;
+}> = ({ label, value, suffix, icon, gradient, highlight, index, tooltip }) => {
+  const [hovered, setHovered] = useState(false);
+  return (
+    <div
+      className="relative rounded-2xl p-5 client-card-enter cursor-default"
+      style={{
+        animationDelay: `${index * 80}ms`,
+        background: highlight && value > 0
+          ? 'linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%)'
+          : 'white',
+        border: highlight && value > 0 ? '1px solid #fcd34d' : '1px solid #f1f5f9',
+        boxShadow: highlight && value > 0 ? '0 4px 20px rgba(251,191,36,0.15)' : '0 2px 8px rgba(0,0,0,0.04)',
+        overflow: 'visible',
+      }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
+      {/* Tooltip */}
+      {hovered && (
+        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-50 pointer-events-none">
+          <div className="bg-gray-900 text-white text-[11px] font-medium rounded-lg px-3 py-2 shadow-xl w-max max-w-[240px] whitespace-normal text-center leading-snug">
+            {tooltip}
+          </div>
+          <div className="w-2 h-2 bg-gray-900 rotate-45 mx-auto -mt-1" />
+        </div>
+      )}
+      <div className="flex items-start justify-between mb-3">
+        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest leading-tight">{label}</p>
+        <div className={`w-9 h-9 rounded-xl bg-gradient-to-br ${gradient} flex items-center justify-center shadow-sm`}>
+          {icon}
+        </div>
+      </div>
+      <p className={`text-3xl font-bold ${highlight && value > 0 ? 'text-amber-600' : 'text-gray-900'}`}>
+        <AnimatedNumber value={value} suffix={suffix} />
+      </p>
+    </div>
+  );
+};
+
+// ─── Portal Analytics Component ───────────────────────────────────────────────
+const PortalAnalytics: React.FC<{ projects: Project[]; milestoneMap: Record<number, Milestone[]> }> = ({ projects, milestoneMap }) => {
+  const [expandedProject, setExpandedProject] = useState<number | null>(null);
+
+  // ── Aggregate data ────────────────────────────────────────────────────────
+  const projectStats = projects.map(p => {
+    const tasks: WBSTask[] = (() => { try { const pl = JSON.parse(p.project_plan || '[]'); return Array.isArray(pl) ? pl : []; } catch { return []; } })();
+    const activeTasks  = tasks.filter(t => !['Phase', 'Summary'].includes(t.type || ''));
+    const clientTasks  = activeTasks.filter(t => t.owner_role === 'Client' || t.type === 'Client Requirement');
+    const done         = activeTasks.filter(t => t.status === 'completed').length;
+    const inProg       = activeTasks.filter(t => t.status === 'in_progress').length;
+    const blocked      = activeTasks.filter(t => t.status === 'blocked').length;
+    const notReq       = activeTasks.filter(t => t.status === 'not_required').length;
+    const notStarted   = activeTasks.filter(t => !t.status || t.status === 'not_started').length;
+    const total        = activeTasks.length;
+    const progress     = total > 0 ? Math.round((done / total) * 100) : 0;
+    const clientPend   = clientTasks.filter(t => t.status !== 'completed').length;
+    const daysToGoLive = getDaysUntil(p.go_live_deadline) ?? null;
+    const hasGoLive    = !!p.go_live_deadline;
+    const mils         = milestoneMap[p.id] || [];
+    const milsDone     = mils.filter(m => m.status === 'completed').length;
+    const upcoming     = mils.filter(m => m.status !== 'completed' && m.due_date).sort((a, b) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime());
+
+    let health = progress;
+    if (blocked > 0) health -= blocked * 5;
+    if (hasGoLive && daysToGoLive !== null && daysToGoLive < 0) health -= 20;
+    health = Math.max(0, Math.min(100, Math.round(health)));
+
+    const daysActive = p.project_start_date
+      ? Math.max(0, Math.ceil((Date.now() - new Date(p.project_start_date).getTime()) / 86400000))
+      : null;
+
+    // Estimate current sprint from tasks
+    const inProgressTask = activeTasks.find(t => t.status === 'in_progress');
+    const currentSprint  = inProgressTask?.sprint_label || (inProgressTask?.sprint ? `Sprint ${inProgressTask.sprint}` : null);
+
+    return { p, activeTasks, clientTasks, done, inProg, blocked, notReq, notStarted, total, progress, clientPend, daysToGoLive, hasGoLive, mils, milsDone, milsTotal: mils.length, upcoming, health, daysActive, currentSprint };
+  });
+
+  const allTasks        = projectStats.flatMap(s => s.activeTasks);
+  const totalTasks      = allTasks.length;
+  const totalDone       = allTasks.filter(t => t.status === 'completed').length;
+  const totalBlocked    = allTasks.filter(t => t.status === 'blocked').length;
+  const totalInProg     = allTasks.filter(t => t.status === 'in_progress').length;
+  const totalClientPend = projectStats.reduce((s, ps) => s + ps.clientPend, 0);
+  const totalMils       = Object.values(milestoneMap).reduce((s, ms) => s + ms.length, 0);
+  const doneMils        = Object.values(milestoneMap).reduce((s, ms) => s + ms.filter(m => m.status === 'completed').length, 0);
+  const overallPct      = totalTasks > 0 ? Math.round((totalDone / totalTasks) * 100) : 0;
+
+  // All upcoming milestones across projects, next 60 days
+  const upcomingAll = projects.flatMap(p =>
+    (milestoneMap[p.id] || [])
+      .filter(m => m.status !== 'completed' && m.due_date)
+      .map(m => ({ ...m, projectName: p.name }))
+  ).sort((a, b) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime())
+   .slice(0, 5);
+
+  // Client action tasks across all projects
+  const clientActionItems = projectStats.flatMap(s =>
+    s.clientTasks
+      .filter(t => t.status !== 'completed' && t.status !== 'not_required')
+      .map(t => ({ ...t, projectName: s.p.name }))
+  );
+
+  // SVG Donut helper
+  const Donut = ({ pct, color, size = 64, stroke = 7 }: { pct: number; color: string; size?: number; stroke?: number }) => {
+    const r    = (size - stroke) / 2;
+    const circ = 2 * Math.PI * r;
+    const dash = (pct / 100) * circ;
+    return (
+      <svg width={size} height={size} className="-rotate-90" style={{ minWidth: size }}>
+        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="#f1f5f9" strokeWidth={stroke} />
+        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={color} strokeWidth={stroke}
+          strokeDasharray={`${dash} ${circ}`} strokeLinecap="round"
+          style={{ transition: 'stroke-dasharray 0.8s ease' }} />
+      </svg>
+    );
+  };
+
+  const healthMeta = (score: number) =>
+    score >= 75 ? { label: 'On Track',      color: '#10b981', bg: 'bg-emerald-50', text: 'text-emerald-700', ring: '#10b981' }
+    : score >= 40 ? { label: 'Needs Attention', color: '#f59e0b', bg: 'bg-amber-50',   text: 'text-amber-700',  ring: '#f59e0b' }
+    :               { label: 'At Risk',       color: '#ef4444', bg: 'bg-red-50',     text: 'text-red-700',    ring: '#ef4444' };
+
+  const daysFromNow = (dateStr?: string) => {
+    if (!dateStr) return null;
+    return Math.ceil((new Date(dateStr).getTime() - Date.now()) / 86400000);
+  };
+
+  if (projects.length === 0) {
+    return (
+      <div className="text-center py-20 bg-white/80 rounded-3xl border border-gray-100 text-gray-400 text-sm client-card-enter">
+        <p className="font-semibold text-gray-500 mb-1">No active projects</p>
+        <p>Analytics will appear once your implementation is underway.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6 client-card-enter">
+
+      {/* ── Header ────────────────────────────────────────────────────────── */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-lg font-extrabold text-gray-900">Portfolio Analytics</h2>
+          <p className="text-xs text-gray-400 mt-0.5">Live across {projects.length} active project{projects.length !== 1 ? 's' : ''}</p>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+          <span className="text-xs text-gray-400 font-medium">Live</span>
+        </div>
+      </div>
+
+      {/* ── Overall health hero ───────────────────────────────────────────── */}
+      <div className="relative rounded-2xl overflow-hidden p-6" style={{ background: 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 60%, #9333ea 100%)' }}>
+        <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'radial-gradient(circle at 80% 50%, white 0%, transparent 50%)' }} />
+        <div className="relative flex flex-col sm:flex-row items-start sm:items-center gap-6">
+          {/* Big donut */}
+          <div className="relative flex-shrink-0">
+            <svg width={96} height={96} className="-rotate-90">
+              <circle cx={48} cy={48} r={38} fill="none" stroke="rgba(255,255,255,0.2)" strokeWidth={9} />
+              <circle cx={48} cy={48} r={38} fill="none" stroke="white" strokeWidth={9}
+                strokeDasharray={`${(overallPct / 100) * 2 * Math.PI * 38} ${2 * Math.PI * 38}`}
+                strokeLinecap="round" style={{ transition: 'stroke-dasharray 1s ease' }} />
+            </svg>
+            <span className="absolute inset-0 flex items-center justify-center text-2xl font-extrabold text-white rotate-90">{overallPct}%</span>
+          </div>
+
+          {/* Stats row */}
+          <div className="flex-1 grid grid-cols-2 sm:grid-cols-4 gap-4">
+            {[
+              { label: 'Tasks Done',    value: `${totalDone}/${totalTasks}`, sub: 'completed' },
+              { label: 'Milestones',    value: `${doneMils}/${totalMils}`,   sub: 'hit'        },
+              { label: 'In Progress',   value: totalInProg,                  sub: 'tasks'       },
+              { label: totalBlocked > 0 ? 'Blocked' : 'Blocked', value: totalBlocked, sub: totalBlocked > 0 ? '⚠ needs action' : '✓ none', warn: totalBlocked > 0 },
+            ].map(({ label, value, sub, warn }) => (
+              <div key={label} className="text-white/90">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-white/60 mb-0.5">{label}</p>
+                <p className={`text-xl font-extrabold leading-tight ${warn ? 'text-red-300' : 'text-white'}`}>{value}</p>
+                <p className={`text-[10px] mt-0.5 ${warn ? 'text-red-300' : 'text-white/60'}`}>{sub}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* ── Client Action Items ───────────────────────────────────────────── */}
+      {clientActionItems.length > 0 && (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
+          <div className="flex items-center gap-2 mb-4">
+            <div className="w-7 h-7 rounded-lg bg-amber-400 flex items-center justify-center flex-shrink-0">
+              <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+              </svg>
+            </div>
+            <div>
+              <p className="text-sm font-bold text-amber-800">Your Actions Required</p>
+              <p className="text-[11px] text-amber-600">{clientActionItems.length} task{clientActionItems.length > 1 ? 's' : ''} waiting on you</p>
+            </div>
+          </div>
+          <div className="space-y-2">
+            {clientActionItems.slice(0, 5).map(t => (
+              <div key={`${t.projectName}-${t.id}`} className="flex items-start gap-3 bg-white rounded-xl px-3 py-2.5 border border-amber-100">
+                <div className={`mt-0.5 w-2 h-2 rounded-full flex-shrink-0 ${t.status === 'blocked' ? 'bg-red-400' : t.status === 'in_progress' ? 'bg-blue-400' : 'bg-gray-300'}`} />
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-semibold text-gray-800 truncate">{t.name}</p>
+                  <p className="text-[10px] text-gray-400 mt-0.5">{t.projectName}</p>
+                </div>
+                <span className={`flex-shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                  t.status === 'blocked'     ? 'bg-red-100 text-red-600' :
+                  t.status === 'in_progress' ? 'bg-blue-100 text-blue-600' :
+                  'bg-gray-100 text-gray-500'
+                }`}>{(t.status || 'not started').replace(/_/g, ' ')}</span>
+              </div>
+            ))}
+            {clientActionItems.length > 5 && (
+              <p className="text-[11px] text-amber-600 text-center pt-1">+{clientActionItems.length - 5} more — open the project to see all</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Upcoming milestones + Go-live countdowns ──────────────────────── */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+
+        {/* Upcoming milestones */}
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+          <p className="text-xs font-bold text-gray-700 uppercase tracking-wider mb-4">Upcoming Milestones</p>
+          {upcomingAll.length === 0 ? (
+            <div className="text-center py-6 text-gray-400 text-xs">
+              <svg className="w-8 h-8 mx-auto mb-2 text-gray-200" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" /></svg>
+              All milestones completed
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {upcomingAll.map(m => {
+                const d = daysFromNow(m.due_date);
+                const isUrgent = d !== null && d <= 7;
+                const isOverdue = d !== null && d < 0;
+                return (
+                  <div key={m.id} className="flex items-start gap-3">
+                    <div className={`mt-0.5 w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 text-[10px] font-bold ${isOverdue ? 'bg-red-100 text-red-600' : isUrgent ? 'bg-amber-100 text-amber-700' : 'bg-indigo-50 text-indigo-600'}`}>
+                      {isOverdue ? '!' : d !== null ? `${d}d` : '?'}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-semibold text-gray-800 truncate">{m.name}</p>
+                      <p className="text-[10px] text-gray-400 mt-0.5">{(m as any).projectName} · {fmtDate(m.due_date)}</p>
+                    </div>
+                    {isOverdue && <span className="flex-shrink-0 text-[10px] font-bold text-red-500 bg-red-50 px-1.5 py-0.5 rounded">Overdue</span>}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Go-live countdowns */}
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+          <p className="text-xs font-bold text-gray-700 uppercase tracking-wider mb-4">Go-Live Countdowns</p>
+          {projectStats.filter(s => s.hasGoLive).length === 0 ? (
+            <div className="text-center py-6 text-gray-400 text-xs">No go-live dates set yet</div>
+          ) : (
+            <div className="space-y-4">
+              {projectStats.filter(s => s.hasGoLive).map(({ p, daysToGoLive, progress }) => {
+                const d = daysToGoLive ?? 0;
+                const isOverdue = d < 0;
+                const isUrgent  = d >= 0 && d <= 14;
+                const barColor  = isOverdue ? '#ef4444' : isUrgent ? '#f59e0b' : '#6366f1';
+                return (
+                  <div key={p.id}>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <p className="text-xs font-semibold text-gray-700 truncate max-w-[60%]">{p.name}</p>
+                      <span className={`text-xs font-bold ${isOverdue ? 'text-red-600' : isUrgent ? 'text-amber-600' : 'text-indigo-600'}`}>
+                        {isOverdue ? `${Math.abs(d)}d overdue` : `${d}d to go`}
+                      </span>
+                    </div>
+                    {/* Dual bar: progress vs time elapsed */}
+                    <div className="relative h-3 bg-gray-100 rounded-full overflow-hidden">
+                      <div className="absolute inset-y-0 left-0 rounded-full transition-all duration-700" style={{ width: `${progress}%`, background: barColor, opacity: 0.25 }} />
+                      <div className="absolute inset-y-0 left-0 rounded-full transition-all duration-700" style={{ width: `${Math.min(progress, 100)}%`, background: barColor }} />
+                    </div>
+                    <p className="text-[10px] text-gray-400 mt-1">{progress}% complete · {fmtDate(p.go_live_deadline)}</p>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ── Per-project deep-dive ─────────────────────────────────────────── */}
+      <div>
+        <p className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-3">Project Breakdown</p>
+        <div className="space-y-3">
+          {projectStats.map(({ p, done, inProg, blocked, notStarted, notReq, total, progress, clientPend, daysToGoLive, hasGoLive, milsDone, milsTotal, health, daysActive, currentSprint, upcoming }) => {
+            const hm  = healthMeta(health);
+            const isExpanded = expandedProject === p.id;
+            const BARS = [
+              { label: 'Done',       count: done,       color: '#10b981' },
+              { label: 'In Progress',count: inProg,     color: '#6366f1' },
+              { label: 'Not Started',count: notStarted, color: '#e2e8f0' },
+              { label: 'Blocked',    count: blocked,    color: '#ef4444' },
+              { label: 'Not Req.',   count: notReq,     color: '#cbd5e1' },
+            ].filter(b => b.count > 0);
+            return (
+              <div key={p.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                {/* Card header — always visible */}
+                <button
+                  className="w-full text-left p-5 flex items-center gap-4 hover:bg-gray-50/60 transition-colors"
+                  onClick={() => setExpandedProject(isExpanded ? null : p.id)}
+                >
+                  {/* Donut */}
+                  <div className="relative flex-shrink-0">
+                    <Donut pct={progress} color={hm.color} size={56} stroke={6} />
+                    <span className="absolute inset-0 flex items-center justify-center text-xs font-extrabold" style={{ color: hm.color }}>{progress}%</span>
+                  </div>
+
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="text-sm font-bold text-gray-800 truncate">{p.name}</p>
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${hm.bg} ${hm.text}`}>{hm.label}</span>
+                      {currentSprint && <span className="text-[10px] font-semibold text-indigo-500 bg-indigo-50 px-2 py-0.5 rounded-full">{currentSprint}</span>}
+                    </div>
+                    {/* Mini stacked bar */}
+                    <div className="flex h-1.5 rounded-full overflow-hidden gap-px mt-2 w-full bg-gray-100">
+                      {total > 0 && BARS.map(b => (
+                        <div key={b.label} style={{ width: `${(b.count / total) * 100}%`, background: b.color }} />
+                      ))}
+                    </div>
+                    <div className="flex items-center gap-3 mt-1.5 text-[10px] text-gray-400 flex-wrap">
+                      <span>{done}/{total} tasks</span>
+                      {blocked > 0 && <span className="text-red-500 font-semibold">{blocked} blocked</span>}
+                      {clientPend > 0 && <span className="text-amber-600 font-semibold">{clientPend} action{clientPend > 1 ? 's' : ''} from you</span>}
+                      {milsTotal > 0 && <span>{milsDone}/{milsTotal} milestones</span>}
+                      {hasGoLive && daysToGoLive !== null && (
+                        <span className={daysToGoLive < 0 ? 'text-red-500 font-semibold' : daysToGoLive <= 14 ? 'text-amber-500 font-semibold' : ''}>
+                          {daysToGoLive < 0 ? `${Math.abs(daysToGoLive)}d overdue` : `${daysToGoLive}d to go-live`}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Expand chevron */}
+                  <svg className={`w-4 h-4 text-gray-300 flex-shrink-0 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+
+                {/* Expanded detail panel */}
+                {isExpanded && (
+                  <div className="border-t border-gray-100 px-5 pb-5 pt-4 space-y-4">
+                    {/* 4-col stat row */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                      {[
+                        { label: 'Health',       value: `${health}%`,              color: hm.text,           bg: hm.bg         },
+                        { label: 'Days Active',  value: daysActive !== null ? `${daysActive}d` : '—', color: 'text-gray-800', bg: 'bg-gray-50' },
+                        { label: 'Milestones',   value: `${milsDone}/${milsTotal}`, color: 'text-emerald-700', bg: 'bg-emerald-50' },
+                        { label: 'Go-Live',      value: hasGoLive && daysToGoLive !== null ? (daysToGoLive < 0 ? `${Math.abs(daysToGoLive)}d late` : `${daysToGoLive}d`) : '—', color: hasGoLive && daysToGoLive !== null && daysToGoLive < 0 ? 'text-red-600' : 'text-indigo-700', bg: 'bg-indigo-50' },
+                      ].map(({ label, value, color, bg }) => (
+                        <div key={label} className={`rounded-xl p-3 ${bg}`}>
+                          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-0.5">{label}</p>
+                          <p className={`text-lg font-extrabold ${color}`}>{value}</p>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Task breakdown legend */}
+                    {total > 0 && (
+                      <div>
+                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Task Status Breakdown</p>
+                        <div className="flex h-3 rounded-full overflow-hidden gap-px mb-2">
+                          {BARS.map(b => (
+                            <div key={b.label} style={{ width: `${(b.count / total) * 100}%`, background: b.color }} />
+                          ))}
+                        </div>
+                        <div className="flex flex-wrap gap-x-4 gap-y-1">
+                          {BARS.map(b => (
+                            <div key={b.label} className="flex items-center gap-1.5 text-[11px] text-gray-500">
+                              <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: b.color }} />
+                              {b.label} <span className="font-semibold text-gray-700">{b.count}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Upcoming milestones for this project */}
+                    {upcoming.length > 0 && (
+                      <div>
+                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Next Milestones</p>
+                        <div className="space-y-2">
+                          {upcoming.slice(0, 3).map(m => {
+                            const d = daysFromNow(m.due_date);
+                            return (
+                              <div key={m.id} className="flex items-center gap-3 text-xs">
+                                <div className={`w-6 h-6 rounded-lg flex items-center justify-center text-[9px] font-bold flex-shrink-0 ${d !== null && d < 0 ? 'bg-red-100 text-red-600' : d !== null && d <= 7 ? 'bg-amber-100 text-amber-700' : 'bg-indigo-50 text-indigo-600'}`}>
+                                  {d !== null ? (d < 0 ? '!' : `${d}d`) : '?'}
+                                </div>
+                                <span className="flex-1 text-gray-700 truncate">{m.name}</span>
+                                <span className="text-gray-400 flex-shrink-0">{fmtDate(m.due_date)}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Team */}
+                    {(p.csm_name || p.pm_name) && (
+                      <div>
+                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Your Team</p>
+                        <div className="flex flex-wrap gap-2">
+                          {p.csm_name && (
+                            <div className="flex items-center gap-2 bg-gray-50 rounded-xl px-3 py-2">
+                              <div className="w-6 h-6 rounded-full bg-indigo-100 flex items-center justify-center text-[10px] font-bold text-indigo-600">{p.csm_name.charAt(0)}</div>
+                              <div>
+                                <p className="text-[10px] font-semibold text-gray-700">{p.csm_name}</p>
+                                <p className="text-[9px] text-gray-400">CSM</p>
+                              </div>
+                            </div>
+                          )}
+                          {p.pm_name && (
+                            <div className="flex items-center gap-2 bg-gray-50 rounded-xl px-3 py-2">
+                              <div className="w-6 h-6 rounded-full bg-violet-100 flex items-center justify-center text-[10px] font-bold text-violet-600">{p.pm_name.charAt(0)}</div>
+                              <div>
+                                <p className="text-[10px] font-semibold text-gray-700">{p.pm_name}</p>
+                                <p className="text-[9px] text-gray-400">PM</p>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
       </div>
     </div>
-    <p className={`text-3xl font-bold ${highlight && value > 0 ? 'text-amber-600' : 'text-gray-900'}`}>
-      <AnimatedNumber value={value} suffix={suffix} />
-    </p>
-  </div>
-);
+  );
+};
 
 // ─── Main Component ────────────────────────────────────────────────────────────
 const ClientPortal: React.FC = () => {
@@ -822,6 +1668,8 @@ const ClientPortal: React.FC = () => {
   const [milestoneMap, setMilestoneMap] = useState<Record<number, Milestone[]>>({});
   const [loading, setLoading] = useState(true);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
+  const [notifTab, setNotifTab] = useState<string | undefined>(undefined);
+  const [portalView, setPortalView] = useState<'projects' | 'analytics'>('projects');
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -923,7 +1771,7 @@ const ClientPortal: React.FC = () => {
 
         {/* ── Header ──────────────────────────────────────────────────────────── */}
         <header className="sticky top-0 z-20 backdrop-blur-xl" style={{ background: 'rgba(255,255,255,0.85)', borderBottom: '1px solid rgba(99,102,241,0.12)' }}>
-          <div className="max-w-5xl mx-auto px-6 py-3 flex items-center justify-between">
+          <div className="max-w-5xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between">
             {/* Brand */}
             <div className="flex items-center gap-3">
               <div className="w-9 h-9 rounded-xl overflow-hidden shadow-md shadow-indigo-200/50 flex-shrink-0 bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center">
@@ -942,9 +1790,31 @@ const ClientPortal: React.FC = () => {
 
             {/* Right side */}
             <div className="flex items-center gap-3">
+              {!selectedProject && (
+                <div className="flex items-center bg-gray-100 rounded-xl p-1">
+                  <button
+                    onClick={() => setPortalView('projects')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${portalView === 'projects' ? 'bg-white text-indigo-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                  >Projects</button>
+                  <button
+                    onClick={() => setPortalView('analytics')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${portalView === 'analytics' ? 'bg-white text-indigo-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                  >Analytics</button>
+                </div>
+              )}
               {user && (
                 <div className="bg-slate-800 rounded-lg">
-                  <NotificationBell userId={user.id} theme="dark" />
+                  <NotificationBell
+                    userId={user.id}
+                    theme="dark"
+                    onProjectClick={(pid, notifType) => {
+                      const found = projects.find(p => p.id === pid);
+                      if (found) {
+                        setNotifTab(NOTIF_TAB_MAP[notifType] || 'overview');
+                        setSelectedProject(found);
+                      }
+                    }}
+                  />
                 </div>
               )}
               <div className="flex items-center gap-2.5 bg-white border border-gray-100 rounded-xl px-3 py-2 shadow-sm">
@@ -958,10 +1828,10 @@ const ClientPortal: React.FC = () => {
               </div>
               <button
                 onClick={logout}
-                title="Sign out"
+                aria-label="Sign out"
                 className="p-2 rounded-xl text-gray-400 hover:text-red-500 hover:bg-red-50 transition-all"
               >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg aria-hidden="true" className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
                 </svg>
               </button>
@@ -969,13 +1839,16 @@ const ClientPortal: React.FC = () => {
           </div>
         </header>
 
-        <main className="max-w-5xl mx-auto px-6 py-8">
+        <main className="max-w-5xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
           {selectedProject ? (
             <ProjectDetail
               project={selectedProject}
               milestones={milestoneMap[selectedProject.id] || []}
-              onBack={() => setSelectedProject(null)}
+              onBack={() => { setSelectedProject(null); setNotifTab(undefined); }}
+              initialTab={notifTab}
             />
+          ) : portalView === 'analytics' ? (
+            <PortalAnalytics projects={projects} milestoneMap={milestoneMap} />
           ) : (
             <>
               {/* ── Hero section ────────────────────────────────────────────── */}
@@ -1034,6 +1907,7 @@ const ClientPortal: React.FC = () => {
                   label="Active Projects"
                   value={projects.length}
                   gradient="from-indigo-500 to-violet-600"
+                  tooltip="Projects currently being implemented for your organisation"
                   icon={<svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>}
                 />
                 <StatCard
@@ -1042,6 +1916,7 @@ const ClientPortal: React.FC = () => {
                   value={pendingClientTasks}
                   gradient="from-amber-400 to-orange-500"
                   highlight
+                  tooltip="WBS tasks assigned to you that are pending — your team is waiting on these"
                   icon={<svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>}
                 />
                 <StatCard
@@ -1050,6 +1925,7 @@ const ClientPortal: React.FC = () => {
                   value={completedMilestones}
                   suffix={totalMilestones > 0 ? `/${totalMilestones}` : ''}
                   gradient="from-emerald-500 to-teal-500"
+                  tooltip="Milestones completed out of total milestones across all your active projects"
                   icon={<svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" /></svg>}
                 />
                 <StatCard
@@ -1057,6 +1933,7 @@ const ClientPortal: React.FC = () => {
                   label="Total Milestones"
                   value={totalMilestones}
                   gradient="from-sky-500 to-blue-600"
+                  tooltip="Total key milestones set across all your active projects"
                   icon={<svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" /></svg>}
                 />
               </div>

@@ -4,20 +4,96 @@
 @tailwind components;
 @tailwind utilities;
 
-* {
+/* ── Base resets ──────────────────────────────────────────────────────────── */
+*, *::before, *::after {
   box-sizing: border-box;
+}
+
+html {
+  /* Prevents font inflation on mobile */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  /* Smooth scroll */
+  scroll-behavior: smooth;
+  /* Safe-area insets for notched devices */
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
 }
 
 body {
   margin: 0;
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-    sans-serif;
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+  /* 16px base — never smaller */
+  font-size: 16px;
+  line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  /* Prevent horizontal scroll */
+  overflow-x: hidden;
+}
+
+/* ── Minimum touch target (44×44px per WCAG 2.5.5) ──────────────────────── */
+button, a, [role="button"] {
+  min-height: 44px;
+  min-width: 44px;
+}
+
+/* Override for tightly-packed UI elements where 44px would break layout */
+.btn-compact {
+  min-height: 32px;
+  min-width: 32px;
+}
+
+/* ── Focus-visible ring (keyboard / assistive tech) ─────────────────────── */
+:focus-visible {
+  outline: 2px solid #6366f1;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Remove default outline when using mouse */
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* ── Typography scale ────────────────────────────────────────────────────── */
+/* Minimum readable size for body text */
+p, li, td, th, label, input, textarea, select {
+  font-size: max(14px, 0.875rem);
+}
+
+/* Sub-labels / helper text — never below 12px */
+.text-helper {
+  font-size: max(12px, 0.75rem);
+}
+
+/* ── Scrollbar polish ────────────────────────────────────────────────────── */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* ── Sidebar mobile drawer transition ───────────────────────────────────── */
+.sidebar-drawer {
+  transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ── Prevent body scroll when mobile sidebar is open ────────────────────── */
+body.sidebar-open {
+  overflow: hidden;
 }
 
 code {
-  font-family: 'Inter', source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
-    monospace;
+  font-family: 'Inter', source-code-pro, Menlo, Monaco, Consolas, 'Courier New', monospace;
 }

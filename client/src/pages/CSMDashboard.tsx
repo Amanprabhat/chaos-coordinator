@@ -1256,6 +1256,7 @@ const CSMDashboard: React.FC = () => {
   const [tourActive,  setTourActive]  = useState(false);
   const [tourStep,    setTourStep]    = useState(0);
   const [tourRect,    setTourRect]    = useState<DOMRect | null>(null);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const sidebarRef     = useRef<HTMLElement>(null);
   const statsRef       = useRef<HTMLDivElement>(null);
@@ -1303,6 +1304,11 @@ const CSMDashboard: React.FC = () => {
     if (!seen) setShowWelcome(true);
   }, []);
 
+  useEffect(() => {
+    document.body.classList.toggle('sidebar-open', sidebarOpen);
+    return () => { document.body.classList.remove('sidebar-open'); };
+  }, [sidebarOpen]);
+
   // Update tour target rect when step changes
   useEffect(() => {
     if (!tourActive) return;
@@ -1336,9 +1342,18 @@ const CSMDashboard: React.FC = () => {
   const prevTourStep = () => setTourStep(s => Math.max(0, s - 1));
   const skipTour = () => setTourActive(false);
 
-  // Show projects assigned to this user including incoming (AWAITING_APPROVAL)
+  // Only show fully approved/active projects as real work items
   const myProjects = projects.filter(p => {
-    const relevant = ['AWAITING_APPROVAL', 'APPROVED', 'ACTIVE'].includes(p.status);
+    const relevant = ['APPROVED', 'ACTIVE'].includes(p.status);
+    if (!relevant) return false;
+    if (isCSM) return p.csm_id === user?.id;
+    if (isPM)  return p.pm_id === user?.id || p.product_manager_id === user?.id;
+    return true;
+  });
+
+  // Pre-approval projects shown as "Coming Soon" — read-only, no actions
+  const comingSoonProjects = projects.filter(p => {
+    const relevant = ['INTAKE_CREATED', 'MEETING_SCHEDULED', 'MEETING_COMPLETED', 'HANDOVER_PENDING', 'AWAITING_APPROVAL'].includes(p.status);
     if (!relevant) return false;
     if (isCSM) return p.csm_id === user?.id;
     if (isPM)  return p.pm_id === user?.id || p.product_manager_id === user?.id;
@@ -1351,11 +1366,44 @@ const CSMDashboard: React.FC = () => {
 
   const stats = {
     total:    myProjects.length,
-    incoming: myProjects.filter(p => p.status === 'AWAITING_APPROVAL').length,
     approved: myProjects.filter(p => p.status === 'APPROVED').length,
     active:   myProjects.filter(p => p.status === 'ACTIVE').length,
     needPlan: myProjects.filter(p => p.status === 'APPROVED' && !p.project_start_date).length,
+    comingSoon: comingSoonProjects.length,
   };
+
+  const todayStr = new Date().toISOString().split('T')[0];
+  const tasksDueToday  = tasks.filter(t => t.due_date && t.due_date.startsWith(todayStr) && t.status !== 'completed').length;
+  const tasksOverdue   = tasks.filter(t => t.due_date && t.due_date < todayStr && t.status !== 'completed').length;
+  const upcomingMilestoneCount = milestones.filter(m => {
+    const mypids = new Set(myProjects.map(p => p.id));
+    return mypids.has(m.project_id) && m.status !== 'completed' && m.due_date &&
+      (new Date(m.due_date).getTime() - Date.now()) < 7 * 24 * 60 * 60 * 1000 &&
+      new Date(m.due_date).getTime() >= Date.now();
+  }).length;
+
+  function getGreeting() {
+    const h = new Date().getHours();
+    if (h < 12) return 'Good morning';
+    if (h < 17) return 'Good afternoon';
+    return 'Good evening';
+  }
+
+  function getWbsProgress(project: Project): { done: number; total: number; pct: number } {
+    if (!project.project_plan) return { done: 0, total: 0, pct: 0 };
+    try {
+      const tasks: WBSTask[] = JSON.parse(project.project_plan);
+      const trackable = tasks.filter(t => t.type === 'Task' || t.type === 'Deliverable' || t.type === 'Milestone');
+      const done = trackable.filter(t => t.status === 'completed').length;
+      const pct = trackable.length > 0 ? Math.round((done / trackable.length) * 100) : 0;
+      return { done, total: trackable.length, pct };
+    } catch { return { done: 0, total: 0, pct: 0 }; }
+  }
+
+  function getDaysUntilDeadline(deadline?: string): number | null {
+    if (!deadline) return null;
+    return Math.ceil((new Date(deadline).getTime() - Date.now()) / 86400000);
+  }
 
   const handleQuickStart = async (projectId: number) => {
     const date = quickDates[projectId];
@@ -1424,11 +1472,10 @@ const CSMDashboard: React.FC = () => {
   ];
 
   const FILTERS = [
-    { key: 'ALL',               label: 'All'            },
-    { key: 'AWAITING_APPROVAL', label: 'Incoming'       },
-    { key: 'APPROVED',          label: 'Ready to Start' },
-    { key: 'ACTIVE',            label: 'Active'         },
-    { key: 'AT_RISK',           label: 'At Risk'        },
+    { key: 'ALL',      label: 'All'            },
+    { key: 'APPROVED', label: 'Ready to Start' },
+    { key: 'ACTIVE',   label: 'Active'         },
+    { key: 'AT_RISK',  label: 'At Risk'        },
   ];
 
   // ── At-Risk helpers (CSM scope — only their projects) ──────────────────────
@@ -1494,32 +1541,59 @@ const CSMDashboard: React.FC = () => {
 
       <div className="flex h-screen bg-[#F8F9FC] overflow-hidden">
 
+        {/* Mobile backdrop */}
+        {sidebarOpen && (
+          <div
+            className="fixed inset-0 z-20 bg-black/50 lg:hidden"
+            onClick={() => setSidebarOpen(false)}
+            aria-hidden="true"
+          />
+        )}
+
         {/* Sidebar */}
-        <aside ref={sidebarRef} className="w-64 flex-shrink-0 flex flex-col bg-slate-900 text-white">
+        <aside
+          ref={sidebarRef}
+          className={`sidebar-drawer fixed inset-y-0 left-0 z-30 w-72 flex flex-col bg-slate-900 text-white
+            lg:relative lg:translate-x-0 lg:w-64 lg:flex-shrink-0
+            ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}
+        >
           <div className="flex items-center gap-3 px-5 py-5 border-b border-white/10">
             <img src="/logo192.png" alt="Chaos Coordinator" className="w-9 h-9 rounded-xl object-cover flex-shrink-0 ring-2 ring-white/20 shadow-lg" />
-            <div>
+            <div className="flex-1">
               <p className="text-sm font-bold text-white leading-tight">Chaos</p>
               <p className="text-sm font-bold text-indigo-400 leading-tight">Coordinator</p>
             </div>
+            <button
+              onClick={() => setSidebarOpen(false)}
+              aria-label="Close navigation"
+              className="lg:hidden p-1.5 text-white/40 hover:text-white rounded-md transition-colors"
+            >
+              <svg aria-hidden="true" className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
           </div>
 
           <nav className="flex-1 px-3 py-4 space-y-1">
             <p className="px-3 py-1 text-[10px] font-semibold text-white/30 uppercase tracking-widest mb-2">Menu</p>
-            {NAV_ITEMS.map(item => (
-              <button
-                key={item.path}
-                onClick={() => navigate(item.path)}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
-                  window.location.pathname === item.path
-                    ? 'bg-indigo-600 text-white'
-                    : 'text-white/50 hover:bg-white/10 hover:text-white'
-                }`}
-              >
-                {item.icon}
-                {item.label}
-              </button>
-            ))}
+            {NAV_ITEMS.map(item => {
+              const active = window.location.pathname === item.path;
+              return (
+                <button
+                  key={item.path}
+                  onClick={() => { navigate(item.path); setSidebarOpen(false); }}
+                  aria-current={active ? 'page' : undefined}
+                  className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium transition-all ${
+                    active
+                      ? 'bg-indigo-600 text-white'
+                      : 'text-white/50 hover:bg-white/10 hover:text-white'
+                  }`}
+                >
+                  <span aria-hidden="true">{item.icon}</span>
+                  {item.label}
+                </button>
+              );
+            })}
             <button
               onClick={() => { setTourStep(0); setTourActive(true); }}
               className="w-full flex items-center gap-2 px-3 py-1.5 rounded-lg text-[11px] font-normal text-white/20 hover:bg-white/5 hover:text-white/40 transition-all mt-3 border-t border-white/5 pt-3"
@@ -1543,9 +1617,10 @@ const CSMDashboard: React.FC = () => {
               </div>
               <button
                 onClick={() => { logout(); navigate('/login'); }}
+                aria-label="Sign out"
                 className="p-1.5 text-white/30 hover:text-red-400 rounded-md transition-colors"
               >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg aria-hidden="true" className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
                 </svg>
               </button>
@@ -1557,20 +1632,44 @@ const CSMDashboard: React.FC = () => {
         <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
 
           {/* Header */}
-          <header className="flex items-center justify-between px-8 py-4 bg-white border-b border-gray-100 flex-shrink-0">
-            <div>
-              <h1 className="text-xl font-bold text-gray-900">
-                {isCSM ? 'Customer Success Dashboard' : isProductManager ? 'Product Management Dashboard' : 'Project Management Dashboard'}
-              </h1>
-              <p className="text-sm text-gray-500 mt-0.5">
+          <header className="flex items-center justify-between px-4 sm:px-6 lg:px-8 py-4 bg-white border-b border-gray-100 flex-shrink-0">
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setSidebarOpen(true)}
+                aria-label="Open navigation"
+                className="lg:hidden p-2 rounded-lg text-gray-500 hover:bg-gray-100 transition-colors"
+              >
+                <svg aria-hidden="true" className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+                </svg>
+              </button>
+              <div>
+              <div className="flex items-center gap-2.5">
+                <h1 className="text-lg sm:text-xl font-bold text-gray-900">
+                  {getGreeting()}, {user?.name?.split(' ')[0]}
+                </h1>
+                {(tasksOverdue > 0 || tasksDueToday > 0) && (
+                  <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${
+                    tasksOverdue > 0 ? 'bg-red-50 text-red-600 border border-red-200' : 'bg-amber-50 text-amber-600 border border-amber-200'
+                  }`}>
+                    {tasksOverdue > 0 ? `${tasksOverdue} overdue` : `${tasksDueToday} due today`}
+                  </span>
+                )}
+              </div>
+              <p className="text-sm text-gray-400 mt-0.5">
                 {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+                {stats.active > 0 && <span className="text-gray-300 mx-1.5">·</span>}
+                {stats.active > 0 && <span className="text-gray-500">{stats.active} active project{stats.active !== 1 ? 's' : ''}</span>}
+                {upcomingMilestoneCount > 0 && <span className="text-gray-300 mx-1.5">·</span>}
+                {upcomingMilestoneCount > 0 && <span className="text-amber-600 font-medium">{upcomingMilestoneCount} milestone{upcomingMilestoneCount !== 1 ? 's' : ''} this week</span>}
               </p>
+            </div>
             </div>
             <div className="flex items-center gap-3">
               {stats.needPlan > 0 && (
-                <div className="flex items-center gap-2 px-4 py-2 bg-amber-50 border border-amber-200 rounded-xl text-sm font-semibold text-amber-700">
-                  <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
-                  {stats.needPlan} project{stats.needPlan > 1 ? 's' : ''} need a start date
+                <div className="flex items-center gap-2 px-3.5 py-2 bg-amber-50 border border-amber-200 rounded-xl text-sm font-semibold text-amber-700">
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                  {stats.needPlan} need start date
                 </div>
               )}
               {user?.id && (
@@ -1588,17 +1687,61 @@ const CSMDashboard: React.FC = () => {
             <div className="flex-1 overflow-y-auto px-6 py-6 min-w-0">
 
               {/* Stats */}
-              <div ref={statsRef} className="grid grid-cols-4 gap-3 mb-6">
+              <div ref={statsRef} className="grid grid-cols-5 gap-3 mb-6">
                 {[
-                  { label: 'Assigned to Me', value: stats.total,    color: 'text-gray-900'    },
-                  { label: 'Incoming',        value: stats.incoming, color: 'text-violet-600'  },
-                  { label: 'Ready to Start',  value: stats.approved, color: 'text-emerald-600' },
-                  { label: 'Active',          value: stats.active,   color: 'text-green-600'   },
+                  {
+                    label: 'My Projects', value: stats.total, color: 'text-gray-900', accent: 'bg-indigo-500',
+                    iconBg: 'bg-indigo-50', textAccent: 'text-indigo-600',
+                    icon: <svg className="w-4 h-4 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>,
+                    sub: stats.active > 0 ? `${stats.active} active` : 'none active',
+                  },
+                  {
+                    label: 'Coming Soon', value: stats.comingSoon, color: 'text-violet-600', accent: 'bg-violet-500',
+                    iconBg: 'bg-violet-50', textAccent: 'text-violet-500',
+                    icon: <svg className="w-4 h-4 text-violet-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>,
+                    sub: 'pending approval',
+                  },
+                  {
+                    label: 'Ready to Start', value: stats.approved, color: 'text-emerald-600', accent: 'bg-emerald-500',
+                    iconBg: 'bg-emerald-50', textAccent: 'text-emerald-500',
+                    icon: <svg className="w-4 h-4 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>,
+                    sub: stats.needPlan > 0 ? `${stats.needPlan} need start date` : 'all dates set',
+                    subAlert: stats.needPlan > 0,
+                  },
+                  {
+                    label: 'Active', value: stats.active, color: 'text-blue-600', accent: 'bg-blue-500',
+                    iconBg: 'bg-blue-50', textAccent: 'text-blue-500',
+                    icon: <svg className="w-4 h-4 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>,
+                    sub: `${atRiskMyProjects.length} at risk`,
+                    subAlert: atRiskMyProjects.length > 0,
+                  },
+                  {
+                    label: 'My Tasks Open', value: tasks.filter(t => t.status !== 'completed').length, color: tasksOverdue > 0 ? 'text-red-600' : 'text-gray-900',
+                    accent: tasksOverdue > 0 ? 'bg-red-500' : 'bg-gray-400',
+                    iconBg: tasksOverdue > 0 ? 'bg-red-50' : 'bg-gray-50', textAccent: tasksOverdue > 0 ? 'text-red-500' : 'text-gray-400',
+                    icon: <svg className={`w-4 h-4 ${tasksOverdue > 0 ? 'text-red-500' : 'text-gray-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg>,
+                    sub: tasksOverdue > 0 ? `${tasksOverdue} overdue` : tasksDueToday > 0 ? `${tasksDueToday} due today` : 'all on track',
+                    subAlert: tasksOverdue > 0,
+                  },
                 ].map((s, i) => (
                   <motion.div key={s.label} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.06 }}
-                    className="bg-white rounded-2xl px-4 py-3.5 border border-gray-100 shadow-sm">
-                    <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1.5">{s.label}</p>
-                    <p className={`text-2xl font-extrabold ${s.color}`}>{s.value}</p>
+                    className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden relative">
+                    {/* top accent stripe */}
+                    <div className={`h-0.5 ${s.accent}`} />
+                    <div className="px-4 py-3.5">
+                      <div className="flex items-start justify-between mb-2">
+                        <div className={`w-8 h-8 rounded-xl ${s.iconBg} flex items-center justify-center flex-shrink-0`}>
+                          {s.icon}
+                        </div>
+                      </div>
+                      <p className={`text-2xl font-extrabold leading-none mb-1 ${s.color}`}>{s.value}</p>
+                      <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide leading-none mb-1.5">{s.label}</p>
+                      {'sub' in s && (
+                        <p className={`text-[10px] font-medium ${(s as any).subAlert ? 'text-amber-500' : s.textAccent}`}>
+                          {(s as any).sub}
+                        </p>
+                      )}
+                    </div>
                   </motion.div>
                 ))}
               </div>
@@ -1684,10 +1827,19 @@ const CSMDashboard: React.FC = () => {
                 <div ref={projectsRef} className="space-y-3">
                   {filtered.map((project, i) => {
                     const sCfg = STATUS_CONFIG[project.status] ?? { bar: 'bg-gray-300', label: project.status };
+                    const wbs  = getWbsProgress(project);
+                    const daysLeft = getDaysUntilDeadline(project.go_live_deadline);
+                    const deadlineUrgent = daysLeft !== null && daysLeft <= 14 && daysLeft >= 0;
+                    const deadlineOverdue = daysLeft !== null && daysLeft < 0;
                     return (
                       <motion.div key={project.id} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.04 }}
-                        className="bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-md hover:border-indigo-100 transition-all cursor-pointer p-4">
-                        <div className="flex items-center justify-between gap-3" onClick={() => navigate(`/project/${project.id}`)}>
+                        className={`bg-white rounded-2xl border shadow-sm hover:shadow-md transition-all cursor-pointer ${
+                          deadlineOverdue ? 'border-red-200 hover:border-red-300' :
+                          deadlineUrgent  ? 'border-amber-200 hover:border-amber-300' :
+                          'border-gray-100 hover:border-indigo-100'
+                        }`}>
+                        <div className="p-4" onClick={() => navigate(`/project/${project.id}`)}>
+                          <div className="flex items-center justify-between gap-3">
                           <div className="flex items-center gap-3 min-w-0">
                             <div className={`w-1 h-10 rounded-full flex-shrink-0 ${sCfg.bar}`} />
                             <div className="min-w-0">
@@ -1724,23 +1876,73 @@ const CSMDashboard: React.FC = () => {
                             })()}
                           </div>
                         </div>
+
+                        {/* WBS progress bar */}
+                        {project.status === 'ACTIVE' && wbs.total > 0 && (
+                          <div className="mt-3">
+                            <div className="flex items-center justify-between mb-1.5">
+                              <span className="text-[10px] text-gray-400 font-medium">WBS Progress</span>
+                              <span className="text-[10px] font-bold text-gray-600">{wbs.done}/{wbs.total} tasks · {wbs.pct}%</span>
+                            </div>
+                            <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                              <motion.div
+                                initial={{ width: 0 }}
+                                animate={{ width: `${wbs.pct}%` }}
+                                transition={{ duration: 0.6, delay: i * 0.04 + 0.2 }}
+                                className={`h-full rounded-full ${wbs.pct >= 80 ? 'bg-emerald-500' : wbs.pct >= 40 ? 'bg-indigo-500' : 'bg-blue-400'}`}
+                              />
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Deadline chip + team */}
+                        {(daysLeft !== null || project.csm_name || project.pm_name) && (
+                          <div className="mt-2.5 flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-1.5">
+                              {daysLeft !== null && (
+                                <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+                                  deadlineOverdue ? 'bg-red-50 text-red-600 border border-red-200' :
+                                  deadlineUrgent  ? 'bg-amber-50 text-amber-600 border border-amber-200' :
+                                  'bg-gray-100 text-gray-500'
+                                }`}>
+                                  {deadlineOverdue
+                                    ? `${Math.abs(daysLeft)}d past go-live`
+                                    : daysLeft === 0 ? 'Go-live today'
+                                    : `${daysLeft}d to go-live`}
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-1 flex-shrink-0">
+                              {[project.csm_name, project.pm_name].filter(Boolean).slice(0,2).map((name, ni) => (
+                                <div key={ni} title={name ?? ''}
+                                  className="w-6 h-6 rounded-full bg-gradient-to-br from-indigo-400 to-violet-500 flex items-center justify-center text-white text-[9px] font-bold ring-1 ring-white -ml-1 first:ml-0">
+                                  {(name ?? '').split(' ').map(n => n[0]).join('').slice(0,2).toUpperCase()}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
                         {/* Inline start date for APPROVED projects */}
                         {project.status === 'APPROVED' && !project.project_start_date && (
-                          <div className="mt-3 pt-3 border-t border-gray-100 flex items-center gap-2" onClick={e => e.stopPropagation()}>
-                            <span className="text-[10px] font-semibold text-amber-600 flex-shrink-0">Set Start Date:</span>
-                            <input
-                              type="date"
-                              value={quickDates[project.id] || ''}
-                              onChange={e => setQuickDates(prev => ({ ...prev, [project.id]: e.target.value }))}
-                              className="flex-1 px-2 py-1 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-indigo-400 min-w-0"
-                            />
-                            <button
-                              onClick={() => handleQuickStart(project.id)}
-                              disabled={!quickDates[project.id]}
-                              className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white text-xs font-semibold rounded-lg transition-colors flex-shrink-0"
-                            >
-                              Start
-                            </button>
+                          <div className="px-4 pb-4 -mt-1" onClick={e => e.stopPropagation()}>
+                            <div className="flex items-center gap-2 pt-3 border-t border-gray-100">
+                              <span className="text-[10px] font-semibold text-amber-600 flex-shrink-0">Set Start Date:</span>
+                              <input
+                                type="date"
+                                value={quickDates[project.id] || ''}
+                                onChange={e => setQuickDates(prev => ({ ...prev, [project.id]: e.target.value }))}
+                                className="flex-1 px-2 py-1 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-indigo-400 min-w-0"
+                              />
+                              <button
+                                onClick={() => handleQuickStart(project.id)}
+                                disabled={!quickDates[project.id]}
+                                className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white text-xs font-semibold rounded-lg transition-colors flex-shrink-0"
+                              >
+                                Start
+                              </button>
+                            </div>
                           </div>
                         )}
                       </motion.div>
@@ -1748,30 +1950,151 @@ const CSMDashboard: React.FC = () => {
                   })}
                 </div>
               ))}
+
+              {/* ── Coming Soon — pre-approval projects (read-only) ───────── */}
+              {comingSoonProjects.length > 0 && (
+                <div className="mt-8">
+                  <div className="flex items-center gap-2 mb-4">
+                    <div className="w-5 h-5 rounded-full bg-violet-100 flex items-center justify-center flex-shrink-0">
+                      <svg className="w-3 h-3 text-violet-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                    </div>
+                    <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Coming Soon</p>
+                    <span className="text-[10px] font-bold bg-violet-100 text-violet-600 px-2 py-0.5 rounded-full">{comingSoonProjects.length}</span>
+                    <span className="text-[10px] text-gray-400">· Pending admin approval · Read-only</span>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {comingSoonProjects.map((project, i) => {
+                      const sCfg = STATUS_CONFIG[project.status] ?? { label: project.status, bg: 'bg-gray-100', text: 'text-gray-600', dot: 'bg-gray-400' };
+                      return (
+                        <motion.div
+                          key={project.id}
+                          initial={{ opacity: 0, y: 6 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ delay: i * 0.04 }}
+                          className="bg-gradient-to-br from-violet-50 to-purple-50 border border-violet-100 rounded-2xl p-4 opacity-80 select-none"
+                        >
+                          <div className="flex items-start justify-between gap-2 mb-2">
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-bold text-gray-700 truncate">{project.name}</p>
+                              <p className="text-xs text-gray-400 mt-0.5 truncate">{project.client_name}</p>
+                            </div>
+                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold flex-shrink-0 ${sCfg.bg} ${sCfg.text}`}>
+                              <span className={`w-1.5 h-1.5 rounded-full ${sCfg.dot}`} />
+                              {sCfg.label}
+                            </span>
+                          </div>
+                          <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-gray-400">
+                            {project.priority && <span>Priority: <span className="font-semibold text-gray-600">{project.priority}</span></span>}
+                            {project.expected_timeline && <span>Timeline: <span className="font-semibold text-gray-600">{project.expected_timeline}</span></span>}
+                            {project.project_type && <span>Type: <span className="font-semibold text-gray-600">{project.project_type}</span></span>}
+                          </div>
+                          <div className="mt-2.5 flex items-center gap-1.5 text-[10px] text-violet-400 font-medium">
+                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                            </svg>
+                            Awaiting admin approval to unlock
+                          </div>
+                        </motion.div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* ── RIGHT: tasks, milestones, actions ────────────────────── */}
             <aside ref={rightPanelRef} className="w-80 flex-shrink-0 border-l border-gray-100 bg-white overflow-y-auto px-5 py-6 space-y-6">
 
-              {/* Incoming Projects */}
-              {myProjects.filter(p => p.status === 'AWAITING_APPROVAL').length > 0 && (
+              {/* Focus Today */}
+              {(() => {
+                const overdueTasksToday = tasks.filter(t => t.due_date && t.due_date <= todayStr && t.status !== 'completed');
+                const nextMilestone = milestones
+                  .filter(m => { const mypids = new Set(myProjects.map(p => p.id)); return mypids.has(m.project_id) && m.status !== 'completed' && m.due_date; })
+                  .sort((a, b) => new Date(a.due_date!).getTime() - new Date(b.due_date!).getTime())[0];
+                const noStartProjects = myProjects.filter(p => p.status === 'APPROVED' && !p.project_start_date);
+                if (overdueTasksToday.length === 0 && !nextMilestone && noStartProjects.length === 0) return null;
+                return (
+                  <div className="bg-gradient-to-br from-indigo-50 to-violet-50 border border-indigo-100 rounded-2xl p-4">
+                    <div className="flex items-center gap-2 mb-3">
+                      <div className="w-6 h-6 rounded-lg bg-indigo-600 flex items-center justify-center flex-shrink-0">
+                        <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                        </svg>
+                      </div>
+                      <p className="text-xs font-bold text-indigo-900 uppercase tracking-wide">Focus Today</p>
+                    </div>
+                    <div className="space-y-2">
+                      {overdueTasksToday.slice(0, 2).map(t => (
+                        <div key={t.id} className="flex items-start gap-2 bg-white rounded-xl p-2.5 border border-red-100">
+                          <span className="w-1.5 h-1.5 rounded-full bg-red-500 flex-shrink-0 mt-1.5" />
+                          <div className="min-w-0">
+                            <p className="text-xs font-semibold text-gray-800 truncate">{t.title}</p>
+                            <p className="text-[10px] text-red-500 font-medium">
+                              {t.due_date === todayStr ? 'Due today' : 'Overdue'}
+                              {t.project_name ? ` · ${t.project_name}` : ''}
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                      {nextMilestone && (
+                        <div
+                          onClick={() => navigate(`/project/${nextMilestone.project_id}`)}
+                          className="flex items-start gap-2 bg-white rounded-xl p-2.5 border border-amber-100 cursor-pointer hover:bg-amber-50 transition-colors"
+                        >
+                          <span className="text-amber-500 text-sm flex-shrink-0 leading-none mt-0.5">◆</span>
+                          <div className="min-w-0">
+                            <p className="text-xs font-semibold text-gray-800 truncate">{nextMilestone.name}</p>
+                            <p className="text-[10px] text-amber-600 font-medium">
+                              {nextMilestone.due_date
+                                ? new Date(nextMilestone.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                                : 'No date'}
+                              {' · '}
+                              {myProjects.find(p => p.id === nextMilestone.project_id)?.name ?? 'Milestone'}
+                            </p>
+                          </div>
+                        </div>
+                      )}
+                      {noStartProjects.slice(0, 1).map(p => (
+                        <div key={p.id} onClick={() => navigate(`/project/${p.id}`)}
+                          className="flex items-start gap-2 bg-white rounded-xl p-2.5 border border-emerald-100 cursor-pointer hover:bg-emerald-50 transition-colors">
+                          <svg className="w-3.5 h-3.5 text-emerald-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                          </svg>
+                          <div className="min-w-0">
+                            <p className="text-xs font-semibold text-gray-800 truncate">{p.name}</p>
+                            <p className="text-[10px] text-emerald-600 font-medium">Set start date to activate</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Coming Soon Projects */}
+              {comingSoonProjects.length > 0 && (
                 <div>
-                  <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">Incoming Projects</p>
+                  <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">Coming Soon</p>
                   <div className="space-y-2">
-                    {myProjects.filter(p => p.status === 'AWAITING_APPROVAL').map(p => (
-                      <div key={p.id} onClick={() => navigate(`/project/${p.id}`)}
-                        className="flex items-start gap-2.5 p-3 bg-violet-50 border border-violet-100 rounded-xl cursor-pointer hover:bg-violet-100 transition-colors">
+                    {comingSoonProjects.slice(0, 3).map(p => (
+                      <div key={p.id}
+                        className="flex items-start gap-2.5 p-3 bg-violet-50 border border-violet-100 rounded-xl">
                         <div className="w-5 h-5 rounded-full bg-violet-100 flex items-center justify-center flex-shrink-0 mt-0.5">
                           <svg className="w-3 h-3 text-violet-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                           </svg>
                         </div>
                         <div className="min-w-0">
                           <p className="text-xs font-semibold text-violet-700 truncate">{p.name}</p>
-                          <p className="text-[10px] text-violet-500">{p.client_name} · Awaiting admin approval</p>
+                          <p className="text-[10px] text-violet-500">{p.client_name} · Pending approval</p>
                         </div>
                       </div>
                     ))}
+                    {comingSoonProjects.length > 3 && (
+                      <p className="text-[10px] text-gray-400 text-center">+{comingSoonProjects.length - 3} more</p>
+                    )}
                   </div>
                 </div>
               )}

@@ -641,14 +641,63 @@ router.post('/:id/generate-plan', async (req, res) => {
 router.put('/:id/plan', async (req, res) => {
   try {
     const { id } = req.params;
-    const { project_plan } = req.body;
+    const { project_plan, changed_by_id, changed_by_name, changed_by_role } = req.body;
     if (!project_plan || !Array.isArray(project_plan)) {
       return res.status(400).json({ error: 'project_plan array required' });
     }
+
+    // Fetch old plan for diffing
+    const project = await db('projects').where('id', id).first();
+    let oldTasks = [];
+    if (project && project.project_plan) {
+      try { oldTasks = JSON.parse(project.project_plan); } catch { /* ignore */ }
+    }
+
+    // Build old task map by task id
+    const oldMap = {};
+    for (const t of oldTasks) {
+      if (t.id != null) oldMap[t.id] = t;
+    }
+
+    // Save updated plan
     await db('projects').where('id', id).update({
       project_plan: JSON.stringify(project_plan),
       updated_at: new Date(),
     });
+
+    // Log status changes to activity_log
+    const now = new Date();
+    const auditRows = [];
+    for (const task of project_plan) {
+      const old = oldMap[task.id];
+      if (old && old.status !== task.status) {
+        auditRows.push({
+          project_id: id,
+          action: 'wbs_task_status_changed',
+          details: JSON.stringify({
+            task_id: task.id,
+            task_name: task.name || task.task_name || '',
+            wbs: task.wbs || '',
+            sprint: task.sprint || null,
+            sprint_label: task.sprint_label || '',
+            old_status: old.status,
+            new_status: task.status,
+            changed_by_id: changed_by_id || null,
+            changed_by_name: changed_by_name || null,
+            changed_by_role: changed_by_role || null,
+            project_id: id,
+            project_name: project.name || '',
+            client_name: project.client_name || '',
+            timestamp: now.toISOString(),
+          }),
+          created_at: now,
+        });
+      }
+    }
+    if (auditRows.length > 0) {
+      await db('activity_log').insert(auditRows);
+    }
+
     res.json({ success: true, plan: project_plan });
   } catch (err) {
     console.error('Error updating plan:', err);
@@ -773,7 +822,7 @@ router.post('/:id/upload-sow', sowUpload.single('sow_file'), async (req, res) =>
   }
 });
 
-// GET /api/projects/:id/download-sow — download/view SOW document
+// GET /api/projects/:id/download-sow — download SOW document
 router.get('/:id/download-sow', async (req, res) => {
   try {
     const { id } = req.params;
@@ -788,6 +837,26 @@ router.get('/:id/download-sow', async (req, res) => {
   } catch (err) {
     console.error('Error downloading SOW:', err);
     res.status(500).json({ error: 'Failed to download SOW' });
+  }
+});
+
+// GET /api/projects/:id/view-sow — view SOW inline in browser
+router.get('/:id/view-sow', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const project = await db('projects').where('id', id).first();
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+    if (!project.sow_file_path) return res.status(404).json({ error: 'No SOW uploaded for this project' });
+
+    const filePath = path.join(__dirname, '../../', project.sow_file_path);
+    if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'SOW file not found on server' });
+
+    res.setHeader('Content-Disposition', `inline; filename="${project.sow_file_name || 'sow_document'}"`);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.sendFile(filePath);
+  } catch (err) {
+    console.error('Error viewing SOW:', err);
+    res.status(500).json({ error: 'Failed to view SOW' });
   }
 });
 

@@ -66,10 +66,11 @@ interface WBSTask {
 }
 
 const WBS_STATUS_COLOR: Record<string, { bg: string; text: string; dot: string }> = {
-  completed:   { bg: 'bg-emerald-50',  text: 'text-emerald-700', dot: 'bg-emerald-500' },
-  in_progress: { bg: 'bg-blue-50',     text: 'text-blue-700',    dot: 'bg-blue-500'    },
-  blocked:     { bg: 'bg-red-50',      text: 'text-red-700',     dot: 'bg-red-500'     },
-  not_started: { bg: 'bg-gray-50',     text: 'text-gray-500',    dot: 'bg-gray-300'    },
+  completed:    { bg: 'bg-emerald-50',  text: 'text-emerald-700', dot: 'bg-emerald-500' },
+  in_progress:  { bg: 'bg-blue-50',     text: 'text-blue-700',    dot: 'bg-blue-500'    },
+  blocked:      { bg: 'bg-red-50',      text: 'text-red-700',     dot: 'bg-red-500'     },
+  not_started:  { bg: 'bg-gray-50',     text: 'text-gray-500',    dot: 'bg-gray-300'    },
+  not_required: { bg: 'bg-slate-50',    text: 'text-slate-400',   dot: 'bg-slate-300'   },
 };
 
 const WBSTrackerView: React.FC<{ projects: Project[] }> = ({ projects }) => {
@@ -258,18 +259,76 @@ const StatusBadge: React.FC<{ status: string }> = ({ status }) => {
 
 // ── Project detail drawer ──────────────────────────────────────────────────────
 
+interface TeamUser { id: number; name: string; role: string; }
+
 interface DrawerProps {
   project: Project;
   onClose: () => void;
   onApprove: (id: number) => void;
-  onReject: (id: number) => void;
+  onReject: (id: number, reason: string) => void;
   approving: boolean;
+  onTeamUpdate: (id: number, updates: Partial<Project>) => void;
 }
 
-const ProjectDrawer: React.FC<DrawerProps> = ({ project, onClose, onApprove, onReject, approving }) => {
+const ProjectDrawer: React.FC<DrawerProps> = ({ project, onClose, onApprove, onReject, approving, onTeamUpdate }) => {
   const canDecide = project.status === 'AWAITING_APPROVAL';
   const [sowAcknowledged, setSowAcknowledged] = useState(false);
+  const [sowViewerOpen, setSowViewerOpen] = useState(false);
   const hasSow = !!project.sow_file_path;
+  const [rejectMode, setRejectMode] = useState(false);
+  const [rejectReason, setRejectReason] = useState('');
+
+  // ── Edit Team state ─────────────────────────────────────────────────────────
+  const [editingTeam, setEditingTeam] = useState(false);
+  const [allUsers, setAllUsers]       = useState<TeamUser[]>([]);
+  const [teamForm, setTeamForm]       = useState({
+    csm_id:             project.csm_id             ?? null as number | null,
+    pm_id:              project.pm_id              ?? null as number | null,
+    product_manager_id: project.product_manager_id ?? null as number | null,
+  });
+  const [savingTeam, setSavingTeam] = useState(false);
+
+  const openEditTeam = async () => {
+    if (!allUsers.length) {
+      const r = await fetch('http://localhost:3001/api/users/all');
+      if (r.ok) setAllUsers(await r.json());
+    }
+    setTeamForm({
+      csm_id:             project.csm_id             ?? null,
+      pm_id:              project.pm_id              ?? null,
+      product_manager_id: project.product_manager_id ?? null,
+    });
+    setEditingTeam(true);
+  };
+
+  const saveTeam = async () => {
+    setSavingTeam(true);
+    try {
+      const r = await fetch(`http://localhost:3001/api/projects/${project.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          csm_id:             teamForm.csm_id             ?? null,
+          pm_id:              teamForm.pm_id              ?? null,
+          product_manager_id: teamForm.product_manager_id ?? null,
+        }),
+      });
+      if (r.ok) {
+        const updated = await r.json();
+        // derive display names from allUsers
+        const find = (id: number | null) => allUsers.find(u => u.id === id);
+        onTeamUpdate(project.id, {
+          csm_id:             teamForm.csm_id             ?? undefined,
+          pm_id:              teamForm.pm_id              ?? undefined,
+          product_manager_id: teamForm.product_manager_id ?? undefined,
+          csm_name:             find(teamForm.csm_id)?.name,
+          pm_name:              find(teamForm.pm_id)?.name,
+          product_manager_name: find(teamForm.product_manager_id)?.name,
+        });
+        setEditingTeam(false);
+      }
+    } finally { setSavingTeam(false); }
+  };
 
   return (
     <motion.div
@@ -335,20 +394,74 @@ const ProjectDrawer: React.FC<DrawerProps> = ({ project, onClose, onApprove, onR
 
           {/* Team */}
           <div>
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Team</p>
-            <div className="bg-gray-50 rounded-2xl p-4 space-y-2.5">
-              {[
-                { label: 'Sales Owner',     value: project.owner_name },
-                { label: 'CSM Assigned',    value: project.csm_name },
-                { label: 'PM Assigned',     value: project.pm_name },
-                { label: 'Product Manager', value: project.product_manager_name },
-              ].map(row => (
-                <div key={row.label} className="flex justify-between text-sm">
-                  <span className="text-gray-500">{row.label}</span>
-                  <span className="font-medium text-gray-800">{row.value || '—'}</span>
-                </div>
-              ))}
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Team</p>
+              {!editingTeam && (
+                <button
+                  onClick={openEditTeam}
+                  className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 transition-colors"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                  </svg>
+                  Edit Team
+                </button>
+              )}
             </div>
+
+            {editingTeam ? (
+              <div className="bg-indigo-50 border border-indigo-100 rounded-2xl p-4 space-y-3">
+                {([
+                  { label: 'CSM', field: 'csm_id' as const, roles: ['CSM'] },
+                  { label: 'PM', field: 'pm_id' as const, roles: ['PM'] },
+                  { label: 'Product Manager', field: 'product_manager_id' as const, roles: ['Product Manager'] },
+                ] as { label: string; field: keyof typeof teamForm; roles: string[] }[]).map(({ label, field, roles }) => {
+                  const opts = allUsers.filter(u => roles.includes(u.role));
+                  return (
+                    <div key={field}>
+                      <label className="block text-xs font-semibold text-gray-500 mb-1">{label}</label>
+                      <select
+                        value={teamForm[field] ?? ''}
+                        onChange={e => setTeamForm(prev => ({ ...prev, [field]: e.target.value ? Number(e.target.value) : null }))}
+                        className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400 bg-white text-gray-800"
+                      >
+                        <option value="">— Unassigned —</option>
+                        {opts.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                      </select>
+                    </div>
+                  );
+                })}
+                <div className="flex gap-2 pt-1">
+                  <button
+                    onClick={saveTeam}
+                    disabled={savingTeam}
+                    className="flex-1 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-xl transition-colors disabled:opacity-50"
+                  >
+                    {savingTeam ? 'Saving…' : 'Save Changes'}
+                  </button>
+                  <button
+                    onClick={() => setEditingTeam(false)}
+                    className="px-4 py-2 bg-white border border-gray-200 text-gray-600 text-xs font-semibold rounded-xl hover:bg-gray-50 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="bg-gray-50 rounded-2xl p-4 space-y-2.5">
+                {[
+                  { label: 'Sales Owner',     value: project.owner_name },
+                  { label: 'CSM Assigned',    value: project.csm_name },
+                  { label: 'PM Assigned',     value: project.pm_name },
+                  { label: 'Product Manager', value: project.product_manager_name },
+                ].map(row => (
+                  <div key={row.label} className="flex justify-between text-sm">
+                    <span className="text-gray-500">{row.label}</span>
+                    <span className="font-medium text-gray-800">{row.value || '—'}</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Business Objective */}
@@ -417,7 +530,7 @@ const ProjectDrawer: React.FC<DrawerProps> = ({ project, onClose, onApprove, onR
             <div>
               <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Integrations Required</p>
               <div className="bg-blue-50 border border-blue-100 rounded-xl px-4 py-3">
-                <p className="text-sm text-gray-700">{project.integrations_required}</p>
+                <p className="text-sm text-gray-700 whitespace-pre-line">{project.integrations_required}</p>
               </div>
             </div>
           )}
@@ -435,26 +548,61 @@ const ProjectDrawer: React.FC<DrawerProps> = ({ project, onClose, onApprove, onR
           {/* SOW */}
           <div>
             <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Statement of Work (SOW)</p>
+
+            {/* Fullscreen PDF viewer overlay */}
+            {sowViewerOpen && hasSow && (
+              <div className="fixed inset-0 z-[300] flex flex-col bg-black/90">
+                <div className="flex items-center justify-between px-4 py-3 bg-gray-900 border-b border-white/10 flex-shrink-0">
+                  <p className="text-sm font-semibold text-white truncate">{project.sow_file_name || 'SOW Document'}</p>
+                  <div className="flex items-center gap-2">
+                    <a
+                      href={`http://localhost:3001/api/projects/${project.id}/download-sow`}
+                      className="text-xs font-semibold text-indigo-300 hover:text-white px-3 py-1.5 rounded-lg hover:bg-white/10 transition-colors"
+                    >
+                      Download
+                    </a>
+                    <button
+                      onClick={() => setSowViewerOpen(false)}
+                      className="p-2 rounded-lg text-white/60 hover:text-white hover:bg-white/20 transition-colors"
+                    >
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+                <iframe
+                  src={`http://localhost:3001/api/projects/${project.id}/view-sow`}
+                  className="flex-1 w-full"
+                  title="SOW Document"
+                />
+              </div>
+            )}
+
             {hasSow ? (
-              <a
-                href={`http://localhost:3001/api/projects/${project.id}/download-sow`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-3 px-4 py-3 bg-indigo-50 border border-indigo-200 rounded-xl hover:bg-indigo-100 transition-colors group"
-              >
-                <div className="w-9 h-9 rounded-lg bg-indigo-100 flex items-center justify-center flex-shrink-0 group-hover:bg-indigo-200 transition-colors">
+              <div className="flex items-center gap-3 px-4 py-3 bg-indigo-50 border border-indigo-200 rounded-xl">
+                <div className="w-9 h-9 rounded-lg bg-indigo-100 flex items-center justify-center flex-shrink-0">
                   <svg className="w-5 h-5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                   </svg>
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-semibold text-indigo-700 truncate">{project.sow_file_name || 'SOW Document'}</p>
-                  <p className="text-xs text-indigo-400 mt-0.5">{project.sow_file_size || ''} · Click to download</p>
+                  <p className="text-xs text-indigo-400 mt-0.5">{project.sow_file_size || ''}</p>
                 </div>
-                <svg className="w-4 h-4 text-indigo-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                </svg>
-              </a>
+                <button
+                  onClick={() => setSowViewerOpen(true)}
+                  className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 px-3 py-1.5 bg-indigo-100 hover:bg-indigo-200 rounded-lg transition-colors"
+                >
+                  View
+                </button>
+                <a
+                  href={`http://localhost:3001/api/projects/${project.id}/download-sow`}
+                  className="text-xs font-semibold text-gray-500 hover:text-gray-700 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+                >
+                  Download
+                </a>
+              </div>
             ) : (
               <div className="border-2 border-dashed border-gray-200 rounded-xl px-4 py-4 flex items-center gap-3">
                 <svg className="w-8 h-8 text-gray-300 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -516,13 +664,41 @@ const ProjectDrawer: React.FC<DrawerProps> = ({ project, onClose, onApprove, onR
                 )}
                 Approve Project
               </button>
-              <button
-                onClick={() => onReject(project.id)}
-                disabled={approving}
-                className="flex-1 py-3 bg-red-50 hover:bg-red-100 text-red-700 text-sm font-semibold rounded-xl transition-colors disabled:opacity-50"
-              >
-                Reject
-              </button>
+              {!rejectMode ? (
+                <button
+                  onClick={() => setRejectMode(true)}
+                  disabled={approving}
+                  className="flex-1 py-3 bg-red-50 hover:bg-red-100 text-red-700 text-sm font-semibold rounded-xl transition-colors disabled:opacity-50"
+                >
+                  Reject
+                </button>
+              ) : (
+                <div className="flex-1 space-y-2">
+                  <textarea
+                    autoFocus
+                    rows={2}
+                    placeholder="Reason for rejection (required)…"
+                    value={rejectReason}
+                    onChange={e => setRejectReason(e.target.value)}
+                    className="w-full px-3 py-2 border border-red-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-red-300 resize-none"
+                  />
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => { setRejectMode(false); setRejectReason(''); }}
+                      className="flex-1 py-2 bg-gray-100 hover:bg-gray-200 text-gray-600 text-xs font-semibold rounded-xl transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={() => { if (rejectReason.trim()) { onReject(project.id, rejectReason.trim()); setRejectMode(false); setRejectReason(''); } }}
+                      disabled={!rejectReason.trim() || approving}
+                      className="flex-1 py-2 bg-red-600 hover:bg-red-700 disabled:opacity-40 text-white text-xs font-semibold rounded-xl transition-colors"
+                    >
+                      Confirm Reject
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -799,6 +975,7 @@ const UserManagementView: React.FC = () => {
   const firstInputRef                   = React.useRef<HTMLInputElement>(null);
   const [deleteTarget, setDeleteTarget] = useState<AppUser | null>(null);
   const [deleting, setDeleting]         = useState(false);
+  const [newUserCreds, setNewUserCreds] = useState<{ name: string; email: string; password: string } | null>(null);
   const [availableProjects, setAvailableProjects] = useState<{ id: number; name: string; client_name: string; status: string; client_spoc_email?: string }[]>([]);
   const [assignedProjectIds, setAssignedProjectIds] = useState<number[]>([]);
   const [loadingProjects, setLoadingProjects] = useState(false);
@@ -878,7 +1055,13 @@ const UserManagementView: React.FC = () => {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(form),
         });
-        if (r.ok) { const created = await r.json(); savedId = created.id; }
+        if (r.ok) {
+          const created = await r.json();
+          savedId = created.id;
+          if (created._defaultPassword) {
+            setNewUserCreds({ name: form.name.trim(), email: form.email.trim(), password: created._defaultPassword });
+          }
+        }
       }
       // Sync project assignments for Client users
       if (form.role === 'Client' && savedId) {
@@ -924,6 +1107,39 @@ const UserManagementView: React.FC = () => {
   return (
     <>
       <style>{USER_DRAWER_ANIM}</style>
+
+      {/* ── New user credentials banner ──────────────────────────────────── */}
+      {newUserCreds && (
+        <div className="fixed top-4 right-4 z-[400] w-96 bg-white border border-indigo-200 rounded-2xl shadow-xl p-5">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-center gap-3 flex-1 min-w-0">
+              <div className="w-9 h-9 rounded-xl bg-indigo-100 flex items-center justify-center flex-shrink-0">
+                <svg className="w-5 h-5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+                </svg>
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-gray-800">User created</p>
+                <p className="text-xs text-gray-500 truncate">{newUserCreds.name} · {newUserCreds.email}</p>
+              </div>
+            </div>
+            <button onClick={() => setNewUserCreds(null)} className="text-gray-400 hover:text-gray-600 flex-shrink-0 mt-0.5">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+            </button>
+          </div>
+          <div className="mt-3 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+            <p className="text-[11px] text-amber-700 font-medium mb-1">Default login credentials</p>
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-sm font-mono font-bold text-amber-900 tracking-wide">{newUserCreds.password}</span>
+              <button
+                onClick={() => { navigator.clipboard.writeText(newUserCreds.password); }}
+                className="text-[10px] font-semibold text-amber-700 hover:text-amber-900 bg-amber-100 hover:bg-amber-200 px-2 py-1 rounded transition-colors"
+              >Copy</button>
+            </div>
+            <p className="text-[10px] text-amber-600 mt-1">Share with the user — they should change it after first login.</p>
+          </div>
+        </div>
+      )}
 
       {/* ── Slide-in Drawer ──────────────────────────────────────────────── */}
       {showForm && (
@@ -1684,6 +1900,7 @@ const AdminDashboard: React.FC = () => {
   const [loading, setLoading]         = useState(true);
   const [selected, setSelected]       = useState<Project | null>(null);
   const [approving, setApproving]     = useState(false);
+  const [hoveredTile, setHoveredTile] = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState<string>(() => {
     const params = new URLSearchParams(location.search);
     return params.get('filter') || 'ALL';
@@ -1703,7 +1920,7 @@ const AdminDashboard: React.FC = () => {
       const res = await fetch('http://localhost:3001/api/projects');
       if (!res.ok) throw new Error('Failed');
       const data = await res.json();
-      setProjects(data);
+      setProjects([...data].sort((a: Project, b: Project) => a.name.localeCompare(b.name)));
     } catch (e) {
       console.error(e);
     } finally {
@@ -1716,24 +1933,55 @@ const AdminDashboard: React.FC = () => {
   const handleApprove = async (id: number) => {
     setApproving(true);
     try {
-      await fetch(`http://localhost:3001/api/projects/${id}/approve`, { method: 'POST' });
-      await fetchProjects();
-      setSelected(prev => prev ? { ...prev, status: 'APPROVED' } : null);
-    } finally {
-      setApproving(false);
-    }
-  };
-
-  const handleReject = async (id: number) => {
-    setApproving(true);
-    try {
-      await fetch(`http://localhost:3001/api/projects/${id}/reject`, { method: 'POST' });
+      const res = await fetch(`http://localhost:3001/api/projects/${id}/approve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ approved_by: user?.id }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(err.error || 'Approval failed. Please try again.');
+        return;
+      }
       await fetchProjects();
       setSelected(null);
     } finally {
       setApproving(false);
     }
   };
+
+  const handleReject = async (id: number, reason: string) => {
+    setApproving(true);
+    try {
+      const res = await fetch(`http://localhost:3001/api/projects/${id}/reject`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rejected_by: user?.id, rejection_reason: reason }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(err.error || 'Rejection failed. Please try again.');
+        return;
+      }
+      await fetchProjects();
+      setSelected(null);
+    } finally {
+      setApproving(false);
+    }
+  };
+
+  const handleTeamUpdate = (id: number, updates: Partial<Project>) => {
+    setProjects(prev => prev.map(p => p.id === id ? { ...p, ...updates } : p));
+    setSelected(prev => prev && prev.id === id ? { ...prev, ...updates } : prev);
+  };
+
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  // Lock body scroll when mobile sidebar open
+  useEffect(() => {
+    document.body.classList.toggle('sidebar-open', sidebarOpen);
+    return () => document.body.classList.remove('sidebar-open');
+  }, [sidebarOpen]);
 
   const atRiskCount = React.useMemo(() =>
     projects.filter(p => ['ACTIVE','APPROVED'].includes(p.status)).filter(p => computeRiskSignals(p).signals.length > 0).length
@@ -1745,7 +1993,6 @@ const AdminDashboard: React.FC = () => {
     { key: 'APPROVED',          label: 'Approved' },
     { key: 'ACTIVE',            label: 'Active' },
     { key: 'AT_RISK',           label: 'At Risk' },
-    { key: 'WBS_TRACKER',       label: 'WBS Tracker' },
   ];
 
   const filtered = activeFilter === 'ALL' ? projects : projects.filter(p => p.status === activeFilter);
@@ -1762,92 +2009,123 @@ const AdminDashboard: React.FC = () => {
             onApprove={handleApprove}
             onReject={handleReject}
             approving={approving}
+            onTeamUpdate={handleTeamUpdate}
           />
         )}
       </AnimatePresence>
 
       <div className="flex h-screen bg-[#F8F9FC] overflow-hidden">
 
+        {/* ── Mobile backdrop ──────────────────────────────────────────────── */}
+        {sidebarOpen && (
+          <div
+            className="fixed inset-0 z-20 bg-black/50 lg:hidden"
+            onClick={() => setSidebarOpen(false)}
+            aria-hidden="true"
+          />
+        )}
+
         {/* ── Sidebar ─────────────────────────────────────────────────────── */}
-        <aside className="w-64 flex-shrink-0 flex flex-col bg-slate-900 text-white">
-          {/* Logo */}
-          <div className="flex items-center gap-3 px-5 py-5 border-b border-white/10">
-            <img src="/logo192.png" alt="Chaos Coordinator" className="w-9 h-9 rounded-xl object-cover flex-shrink-0 ring-2 ring-white/20 shadow-lg" />
-            <div>
-              <p className="text-sm font-bold text-white leading-tight">Chaos</p>
-              <p className="text-sm font-bold text-indigo-400 leading-tight">Coordinator</p>
+        <aside
+          className={`sidebar-drawer fixed inset-y-0 left-0 z-30 w-72 flex flex-col bg-slate-900 text-white
+            lg:relative lg:translate-x-0 lg:w-64 lg:flex-shrink-0
+            ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}
+          aria-label="Main navigation"
+        >
+          {/* Logo + close btn */}
+          <div className="flex items-center justify-between gap-3 px-5 py-5 border-b border-white/10">
+            <div className="flex items-center gap-3">
+              <img src="/logo192.png" alt="Chaos Coordinator logo" className="w-9 h-9 rounded-xl object-cover flex-shrink-0 ring-2 ring-white/20 shadow-lg" />
+              <div>
+                <p className="text-sm font-bold text-white leading-tight">Chaos</p>
+                <p className="text-sm font-bold text-indigo-400 leading-tight">Coordinator</p>
+              </div>
             </div>
+            <button
+              onClick={() => setSidebarOpen(false)}
+              aria-label="Close navigation"
+              className="lg:hidden p-2 rounded-lg text-white/40 hover:text-white hover:bg-white/10 transition-colors"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
           </div>
 
           {/* Nav */}
-          <nav className="flex-1 px-3 py-4 space-y-1">
+          <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto" aria-label="Sidebar menu">
             <p className="px-3 py-1 text-[10px] font-semibold text-white/30 uppercase tracking-widest mb-2">Menu</p>
             <button
-              onClick={() => navigate('/admin-dashboard')}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+              onClick={() => { navigate('/admin-dashboard'); setSidebarOpen(false); }}
+              aria-current={window.location.pathname === '/admin-dashboard' ? 'page' : undefined}
+              className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium transition-colors ${
                 window.location.pathname === '/admin-dashboard'
                   ? 'bg-indigo-600 text-white'
-                  : 'text-white/50 hover:bg-white/10 hover:text-white'
+                  : 'text-white/60 hover:bg-white/10 hover:text-white'
               }`}
             >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
               </svg>
               Dashboard
               {pendingCount > 0 && (
-                <span className="ml-auto bg-red-500 text-white text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center">
+                <span className="ml-auto bg-red-500 text-white text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center" aria-label={`${pendingCount} pending approvals`}>
                   {pendingCount}
                 </span>
               )}
             </button>
             <button
-              onClick={() => navigate('/projects')}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+              onClick={() => { navigate('/projects'); setSidebarOpen(false); }}
+              aria-current={window.location.pathname === '/projects' ? 'page' : undefined}
+              className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium transition-colors ${
                 window.location.pathname === '/projects'
                   ? 'bg-indigo-600 text-white'
-                  : 'text-white/50 hover:bg-white/10 hover:text-white'
+                  : 'text-white/60 hover:bg-white/10 hover:text-white'
               }`}
             >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
               </svg>
               All Projects
             </button>
             <button
-              onClick={() => navigate('/analytics')}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+              onClick={() => { navigate('/analytics'); setSidebarOpen(false); }}
+              aria-current={window.location.pathname === '/analytics' ? 'page' : undefined}
+              className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium transition-colors ${
                 window.location.pathname === '/analytics'
                   ? 'bg-indigo-600 text-white'
-                  : 'text-white/50 hover:bg-white/10 hover:text-white'
+                  : 'text-white/60 hover:bg-white/10 hover:text-white'
               }`}
             >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
               </svg>
               Analytics
             </button>
             <button
-              onClick={() => setActiveFilter('CLIENT_REQUESTS')}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+              onClick={() => { setActiveFilter('CLIENT_REQUESTS'); setSidebarOpen(false); }}
+              aria-current={activeFilter === 'CLIENT_REQUESTS' ? 'page' : undefined}
+              className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium transition-colors ${
                 activeFilter === 'CLIENT_REQUESTS'
                   ? 'bg-indigo-600 text-white'
-                  : 'text-white/50 hover:bg-white/10 hover:text-white'
+                  : 'text-white/60 hover:bg-white/10 hover:text-white'
               }`}
             >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
               </svg>
               Client Requests
             </button>
             <button
-              onClick={() => setActiveFilter('USER_MANAGEMENT')}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+              onClick={() => { setActiveFilter('USER_MANAGEMENT'); setSidebarOpen(false); }}
+              aria-current={activeFilter === 'USER_MANAGEMENT' ? 'page' : undefined}
+              className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium transition-colors ${
                 activeFilter === 'USER_MANAGEMENT'
                   ? 'bg-indigo-600 text-white'
-                  : 'text-white/50 hover:bg-white/10 hover:text-white'
+                  : 'text-white/60 hover:bg-white/10 hover:text-white'
               }`}
             >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
               </svg>
               User Management
@@ -1860,9 +2138,9 @@ const AdminDashboard: React.FC = () => {
               { label: 'Approved',          count: projects.filter(p => p.status === 'APPROVED').length,          color: 'bg-emerald-500' },
               { label: 'Total Projects',    count: projects.length,                                                color: 'bg-blue-500' },
             ].map(item => (
-              <div key={item.label} className="flex items-center justify-between px-3 py-2 rounded-lg text-sm text-white/50">
+              <div key={item.label} className="flex items-center justify-between px-3 py-2 rounded-lg text-sm text-white/60">
                 <div className="flex items-center gap-2">
-                  <span className={`w-2 h-2 rounded-full ${item.color}`} />
+                  <span className={`w-2 h-2 rounded-full flex-shrink-0 ${item.color}`} aria-hidden="true" />
                   {item.label}
                 </div>
                 <span className="text-xs font-bold text-white bg-white/20 px-2 py-0.5 rounded-full">{item.count}</span>
@@ -1872,20 +2150,20 @@ const AdminDashboard: React.FC = () => {
 
           {/* User */}
           <div className="px-3 py-4 border-t border-white/10">
-            <div className="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-white/10 transition-colors">
-              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-violet-500 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
+            <div className="flex items-center gap-3 px-3 py-2.5 rounded-lg">
+              <div className="w-9 h-9 rounded-full bg-gradient-to-br from-indigo-500 to-violet-500 flex items-center justify-center text-white text-xs font-bold flex-shrink-0" aria-hidden="true">
                 {initials}
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-semibold text-white truncate">{user?.name ?? 'Admin'}</p>
-                <p className="text-xs text-white/50">Admin</p>
+                <p className="text-xs text-white/50">Administrator</p>
               </div>
               <button
                 onClick={() => { logout(); navigate('/login'); }}
-                title="Sign out"
-                className="p-1.5 text-white/30 hover:text-red-400 rounded-md transition-colors"
+                aria-label="Sign out"
+                className="p-2 text-white/30 hover:text-red-400 rounded-lg transition-colors"
               >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
                 </svg>
               </button>
@@ -1897,16 +2175,28 @@ const AdminDashboard: React.FC = () => {
         <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
 
           {/* Top bar */}
-          <header className="flex items-center justify-between px-8 py-4 bg-white border-b border-gray-100 flex-shrink-0">
-            <div>
-              <h1 className="text-xl font-bold text-gray-900">
-              {activeFilter === 'USER_MANAGEMENT' ? 'User Management' : activeFilter === 'CLIENT_REQUESTS' ? 'Client Requests' : 'Admin Approval Dashboard'}
-            </h1>
-              <p className="text-sm text-gray-500 mt-0.5">
-                {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
-              </p>
+          <header className="flex items-center justify-between px-4 sm:px-6 py-4 bg-white border-b border-gray-100 flex-shrink-0 gap-3">
+            <div className="flex items-center gap-3 min-w-0">
+              {/* Hamburger — mobile only */}
+              <button
+                onClick={() => setSidebarOpen(true)}
+                aria-label="Open navigation"
+                className="lg:hidden p-2 rounded-lg text-gray-500 hover:bg-gray-100 transition-colors flex-shrink-0"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+                </svg>
+              </button>
+              <div className="min-w-0">
+                <h1 className="text-lg sm:text-xl font-bold text-gray-900 truncate">
+                  {activeFilter === 'USER_MANAGEMENT' ? 'User Management' : activeFilter === 'CLIENT_REQUESTS' ? 'Client Requests' : 'Admin Dashboard'}
+                </h1>
+                <p className="text-xs sm:text-sm text-gray-400 hidden sm:block">
+                  {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+                </p>
+              </div>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 flex-shrink-0">
               {user?.id && (
                 <div className="bg-slate-800 rounded-lg">
                   <NotificationBell userId={user.id} pendingApprovals={pendingCount} />
@@ -1915,54 +2205,129 @@ const AdminDashboard: React.FC = () => {
             </div>
           </header>
 
-          <div className="flex-1 overflow-y-auto px-8 py-6">
+          <div className="flex-1 overflow-y-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6">
 
-            {/* Stats + filter tabs — hidden on User Management / Client Requests views */}
+            {/* Stats grid — only on project views */}
             {activeFilter !== 'USER_MANAGEMENT' && activeFilter !== 'CLIENT_REQUESTS' && (
-              <>
-                <div className="grid grid-cols-4 gap-4 mb-6">
-                  {[
-                    { label: 'Total Projects',    value: projects.length,                                                color: 'text-gray-900'   },
-                    { label: 'Pending Approval',  value: projects.filter(p => p.status === 'AWAITING_APPROVAL').length, color: 'text-violet-600' },
-                    { label: 'Approved',          value: projects.filter(p => p.status === 'APPROVED').length,          color: 'text-emerald-600'},
-                    { label: 'Active',            value: projects.filter(p => p.status === 'ACTIVE').length,            color: 'text-blue-600'   },
-                  ].map((s, i) => (
-                    <motion.div
-                      key={s.label}
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: i * 0.06 }}
-                      className="bg-white rounded-2xl px-5 py-4 border border-gray-100 shadow-sm"
-                    >
-                      <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">{s.label}</p>
-                      <p className={`text-3xl font-extrabold ${s.color}`}>{s.value}</p>
-                    </motion.div>
-                  ))}
-                </div>
+              <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-6">
+                {(() => {
+                  const atRiskIds = new Set(
+                    projects.filter(p => ['ACTIVE','APPROVED'].includes(p.status) && computeRiskSignals(p).signals.length > 0).map(p => p.id)
+                  );
+                  return ([
+                    { key: 'ALL',               label: 'Total Projects',   value: projects.length,                                                icon: 'M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10', gradient: 'from-slate-500 to-slate-700',   ring: 'ring-slate-300',   numColor: 'text-slate-800',   previewProjects: projects },
+                    { key: 'AWAITING_APPROVAL', label: 'Pending Approval', value: projects.filter(p => p.status === 'AWAITING_APPROVAL').length, icon: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z',                                                                                                  gradient: 'from-violet-500 to-purple-600', ring: 'ring-violet-300',  numColor: 'text-violet-700',  pulse: true, previewProjects: projects.filter(p => p.status === 'AWAITING_APPROVAL') },
+                    { key: 'APPROVED',          label: 'Approved',         value: projects.filter(p => p.status === 'APPROVED').length,          icon: 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z',                                                                                               gradient: 'from-emerald-500 to-teal-500',  ring: 'ring-emerald-300', numColor: 'text-emerald-700', previewProjects: projects.filter(p => p.status === 'APPROVED') },
+                    { key: 'ACTIVE',            label: 'Active',           value: projects.filter(p => p.status === 'ACTIVE').length,            icon: 'M13 10V3L4 14h7v7l9-11h-7z',                                                                                                                   gradient: 'from-blue-500 to-indigo-600',   ring: 'ring-blue-300',    numColor: 'text-blue-700',    previewProjects: projects.filter(p => p.status === 'ACTIVE') },
+                    { key: 'AT_RISK',           label: 'At Risk',          value: atRiskCount,                                                   icon: 'M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z',                                                                                           gradient: 'from-red-500 to-orange-500',    ring: 'ring-red-300',     numColor: 'text-red-700',     pulse: true, previewProjects: projects.filter(p => atRiskIds.has(p.id)) },
+                  ] as const).map((s, i) => {
+                    const isActive = activeFilter === s.key;
+                    const showPulse = 'pulse' in s && s.pulse && s.value > 0;
+                    const preview = s.previewProjects.slice(0, 5);
+                    return (
+                      <div
+                        key={s.key}
+                        className="relative"
+                        onMouseEnter={() => setHoveredTile(s.key)}
+                        onMouseLeave={() => setHoveredTile(null)}
+                      >
+                        <motion.button
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ delay: i * 0.06 }}
+                          onClick={() => setActiveFilter(s.key)}
+                          className={`w-full relative overflow-hidden text-left rounded-2xl p-4 border transition-all hover:shadow-md focus:outline-none ${
+                            isActive
+                              ? `bg-white border-transparent ring-2 ${s.ring} shadow-md`
+                              : 'bg-white border-gray-100 shadow-sm hover:border-gray-200'
+                          }`}
+                        >
+                          <div className={`absolute -top-5 -right-5 w-20 h-20 rounded-full bg-gradient-to-br ${s.gradient} opacity-[0.08] pointer-events-none`} />
+                          <div className={`w-9 h-9 rounded-xl bg-gradient-to-br ${s.gradient} flex items-center justify-center mb-3 shadow-sm`}>
+                            <svg className="w-[18px] h-[18px] text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={s.icon} />
+                            </svg>
+                          </div>
+                          <p className={`text-2xl font-extrabold ${s.numColor} flex items-center gap-2`}>
+                            {s.value}
+                            {showPulse && <span className={`w-2 h-2 rounded-full bg-gradient-to-br ${s.gradient} animate-pulse`} />}
+                          </p>
+                          <p className="text-[11px] font-semibold text-gray-400 mt-0.5 leading-tight">{s.label}</p>
+                        </motion.button>
 
-                {/* Filter tabs */}
-                <div className="flex items-center gap-2 mb-5">
-                  {FILTERS.map(f => (
-                    <button
-                      key={f.key}
-                      onClick={() => setActiveFilter(f.key)}
-                      className={`px-4 py-2 rounded-xl text-sm font-semibold transition-colors ${
-                        activeFilter === f.key
-                          ? 'bg-indigo-600 text-white shadow-sm'
-                          : 'bg-white text-gray-500 border border-gray-200 hover:border-indigo-300 hover:text-indigo-600'
-                      }`}
-                    >
-                      {f.label}
-                      {f.key === 'AWAITING_APPROVAL' && pendingCount > 0 && (
-                        <span className="ml-2 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">{pendingCount}</span>
-                      )}
-                      {f.key === 'AT_RISK' && atRiskCount > 0 && (
-                        <span className="ml-2 bg-amber-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">{atRiskCount}</span>
-                      )}
-                    </button>
-                  ))}
-                </div>
-              </>
+                        {/* Hover popover — list of projects */}
+                        {hoveredTile === s.key && preview.length > 0 && (
+                          <div className="absolute left-0 top-[calc(100%+6px)] z-[200] w-72 bg-white rounded-2xl shadow-2xl border border-gray-100 p-3">
+                            <div className="absolute -top-2 left-6 w-4 h-2 overflow-hidden">
+                              <div className="w-4 h-4 bg-white border border-gray-100 rotate-45 translate-y-1 shadow" />
+                            </div>
+                            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2 px-1">{s.label}</p>
+                            <div className="space-y-1">
+                              {preview.map(p => (
+                                <button
+                                  key={p.id}
+                                  onClick={(e) => { e.stopPropagation(); setSelected(p); setActiveFilter(s.key); setHoveredTile(null); }}
+                                  className="w-full flex items-center gap-2.5 px-2 py-2 rounded-xl hover:bg-gray-50 transition-colors text-left"
+                                >
+                                  <div className={`w-1.5 h-6 rounded-full flex-shrink-0 bg-gradient-to-b ${s.gradient}`} />
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-xs font-semibold text-gray-800 truncate">{p.name}</p>
+                                    <p className="text-[10px] text-gray-400 truncate">{p.client_name}</p>
+                                  </div>
+                                  <svg className="w-3.5 h-3.5 text-gray-300 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                  </svg>
+                                </button>
+                              ))}
+                              {s.previewProjects.length > 5 && (
+                                <button
+                                  onClick={() => { setActiveFilter(s.key); setHoveredTile(null); }}
+                                  className="w-full text-center text-[10px] font-semibold text-indigo-500 hover:text-indigo-700 py-1.5 transition-colors"
+                                >
+                                  +{s.previewProjects.length - 5} more — view all →
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                        {hoveredTile === s.key && preview.length === 0 && s.value === 0 && (
+                          <div className="absolute left-0 top-[calc(100%+6px)] z-[200] w-56 bg-white rounded-2xl shadow-xl border border-gray-100 p-3">
+                            <div className="absolute -top-2 left-6 w-4 h-2 overflow-hidden">
+                              <div className="w-4 h-4 bg-white border border-gray-100 rotate-45 translate-y-1 shadow" />
+                            </div>
+                            <p className="text-xs text-gray-400 text-center py-2">No projects here</p>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  });
+                })()}
+              </div>
+            )}
+
+            {/* Project filter tabs — only on project views */}
+            {activeFilter !== 'USER_MANAGEMENT' && activeFilter !== 'CLIENT_REQUESTS' && (
+            <div className="flex items-center gap-2 mb-5 flex-wrap">
+              {FILTERS.map(f => (
+                <button
+                  key={f.key}
+                  onClick={() => setActiveFilter(f.key)}
+                  className={`px-4 py-2 rounded-xl text-sm font-semibold transition-colors ${
+                    activeFilter === f.key
+                      ? 'bg-indigo-600 text-white shadow-sm'
+                      : 'bg-white text-gray-500 border border-gray-200 hover:border-indigo-300 hover:text-indigo-600'
+                  }`}
+                >
+                  {f.label}
+                  {f.key === 'AWAITING_APPROVAL' && pendingCount > 0 && (
+                    <span className="ml-2 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">{pendingCount}</span>
+                  )}
+                  {f.key === 'AT_RISK' && atRiskCount > 0 && (
+                    <span className="ml-2 bg-amber-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">{atRiskCount}</span>
+                  )}
+                </button>
+              ))}
+            </div>
             )}
 
             {/* Client Requests view */}
@@ -1992,42 +2357,105 @@ const AdminDashboard: React.FC = () => {
                 <p className="text-sm text-gray-400">No projects in this category</p>
               </div>
             ) : (
-              <div className="space-y-3">
-                {filtered.map((project, i) => (
-                  <motion.div
-                    key={project.id}
-                    initial={{ opacity: 0, y: 8 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: i * 0.04 }}
-                    onClick={() => setSelected(project)}
-                    className="bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-md hover:border-indigo-100 transition-all cursor-pointer p-5"
-                  >
-                    <div className="flex items-center justify-between gap-4">
-                      <div className="flex items-center gap-4 min-w-0">
-                        <div className={`w-1 h-12 rounded-full flex-shrink-0 ${
-                          project.status === 'AWAITING_APPROVAL' ? 'bg-violet-400' :
-                          project.status === 'APPROVED'          ? 'bg-emerald-400' :
-                          project.status === 'ACTIVE'            ? 'bg-green-400' :
-                          'bg-gray-200'
-                        }`} />
-                        <div className="min-w-0">
-                          <p className="text-sm font-bold text-gray-900 truncate">{project.name}</p>
-                          <p className="text-xs text-gray-500 mt-0.5">{project.client_name}</p>
-                          <p className="text-xs text-gray-400 mt-1">Submitted by {project.owner_name} · {new Date(project.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+                {filtered.map((project, i) => {
+                  let wbsTasks: WBSTask[] = [];
+                  try { const p = JSON.parse(project.project_plan || '[]'); wbsTasks = Array.isArray(p) ? p : []; } catch {}
+                  const trackable = wbsTasks.filter(t => t.type === 'Task' || t.type === 'Deliverable');
+                  const done      = trackable.filter(t => t.status === 'completed').length;
+                  const blocked   = trackable.filter(t => t.status === 'blocked').length;
+                  const pct       = trackable.length > 0 ? Math.round((done / trackable.length) * 100) : -1;
+                  const riskSigs  = computeRiskSignals(project).signals;
+                  const isAtRisk  = riskSigs.length > 0;
+                  const goLiveDays = project.go_live_deadline
+                    ? Math.ceil((new Date(project.go_live_deadline).getTime() - Date.now()) / 86400000)
+                    : null;
+
+                  const stripeColor =
+                    project.status === 'AWAITING_APPROVAL' ? 'bg-gradient-to-r from-violet-400 to-purple-500' :
+                    project.status === 'APPROVED'          ? 'bg-gradient-to-r from-emerald-400 to-teal-500'  :
+                    project.status === 'ACTIVE'            ? 'bg-gradient-to-r from-blue-400 to-indigo-500'   :
+                    'bg-gradient-to-r from-gray-200 to-gray-300';
+
+                  return (
+                    <motion.div
+                      key={project.id}
+                      initial={{ opacity: 0, y: 8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: i * 0.03 }}
+                      onClick={() => setSelected(project)}
+                      className={`bg-white rounded-2xl border shadow-sm hover:shadow-lg transition-all cursor-pointer overflow-hidden flex flex-col ${
+                        isAtRisk ? 'border-red-100 hover:border-red-200' : 'border-gray-100 hover:border-indigo-100'
+                      }`}
+                    >
+                      {/* Colour stripe */}
+                      <div className={`h-1 w-full flex-shrink-0 ${stripeColor}`} />
+
+                      <div className="p-4 flex flex-col flex-1 gap-3">
+                        {/* Top row: name + status badge */}
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-bold text-gray-900 truncate leading-tight">{project.name}</p>
+                            <p className="text-xs text-gray-400 mt-0.5 truncate">
+                              {project.client_name}
+                              {project.project_type ? <span className="text-gray-300"> · {project.project_type}</span> : null}
+                            </p>
+                          </div>
+                          <StatusBadge status={project.status} />
+                        </div>
+
+                        {/* Tags row */}
+                        <div className="flex flex-wrap gap-1.5">
+                          {project.priority && (
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                              project.priority === 'High'     ? 'bg-red-50 text-red-600'     :
+                              project.priority === 'Critical' ? 'bg-red-100 text-red-700'    :
+                              project.priority === 'Medium'   ? 'bg-amber-50 text-amber-600' :
+                              'bg-gray-100 text-gray-500'
+                            }`}>{project.priority}</span>
+                          )}
+                          {isAtRisk && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-50 text-red-600">At Risk</span>}
+                          {blocked > 0 && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-50 text-red-600">{blocked} blocked</span>}
+                          {project.status === 'AWAITING_APPROVAL' && (
+                            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-violet-50 text-violet-600 border border-violet-100">Review →</span>
+                          )}
+                        </div>
+
+                        {/* Team avatars */}
+                        <div className="flex items-center gap-1.5 flex-wrap text-[11px] text-gray-400">
+                          {project.csm_name   && <span className="truncate max-w-[90px]" title={project.csm_name}>CSM: <span className="font-semibold text-gray-600">{project.csm_name.split(' ')[0]}</span></span>}
+                          {project.pm_name    && <span className="truncate max-w-[90px]" title={project.pm_name}>PM: <span className="font-semibold text-gray-600">{project.pm_name.split(' ')[0]}</span></span>}
+                          {project.owner_name && <span className="truncate max-w-[90px]" title={project.owner_name}>Sales: <span className="font-semibold text-gray-600">{project.owner_name.split(' ')[0]}</span></span>}
+                        </div>
+
+                        {/* Footer: go-live + progress */}
+                        <div className="mt-auto pt-3 border-t border-gray-50 space-y-2">
+                          {goLiveDays !== null && (
+                            <p className={`text-[11px] font-semibold ${goLiveDays < 0 ? 'text-red-500' : goLiveDays < 7 ? 'text-amber-500' : 'text-gray-400'}`}>
+                              {goLiveDays < 0 ? `Go-live ${Math.abs(goLiveDays)}d overdue` : goLiveDays === 0 ? 'Go-live today' : `Go-live in ${goLiveDays}d`}
+                            </p>
+                          )}
+                          {pct >= 0 && (
+                            <div>
+                              <div className="flex items-center justify-between mb-1">
+                                <span className="text-[10px] text-gray-400">{done}/{trackable.length} tasks</span>
+                                <span className="text-[10px] font-bold text-indigo-600">{pct}%</span>
+                              </div>
+                              <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                                <div
+                                  className={`h-full rounded-full transition-all ${
+                                    blocked > 0 ? 'bg-red-400' : pct === 100 ? 'bg-emerald-500' : 'bg-gradient-to-r from-indigo-400 to-violet-500'
+                                  }`}
+                                  style={{ width: `${pct}%` }}
+                                />
+                              </div>
+                            </div>
+                          )}
                         </div>
                       </div>
-                      <div className="flex items-center gap-3 flex-shrink-0">
-                        {project.project_type && (
-                          <span className="text-xs font-medium text-gray-500 bg-gray-100 px-2.5 py-1 rounded-full">{project.project_type}</span>
-                        )}
-                        <StatusBadge status={project.status} />
-                        {project.status === 'AWAITING_APPROVAL' && (
-                          <span className="text-xs font-semibold text-violet-600 bg-violet-50 px-3 py-1.5 rounded-lg">Review →</span>
-                        )}
-                      </div>
-                    </div>
-                  </motion.div>
-                ))}
+                    </motion.div>
+                  );
+                })}
               </div>
             ))}
           </div>

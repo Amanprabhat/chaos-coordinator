@@ -60,7 +60,7 @@ const CATEGORY_META: Record<string, { label: string; color: string; icon: React.
   'Other':        { label: 'Other',           color: 'bg-pink-50 text-pink-700 border-pink-200',          icon: <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 19a2 2 0 01-2-2V7a2 2 0 012-2h4l2 2h4a2 2 0 012 2v1M5 19h14a2 2 0 002-2v-5a2 2 0 00-2-2H9a2 2 0 00-2 2v5a2 2 0 01-2 2z"/></svg> },
 };
 
-const DOC_CATEGORIES = ['General', 'MoM', 'SOW', 'BRD', 'Change Request', 'Test Plan', 'Other'];
+const DOC_CATEGORIES = ['General', 'MoM', 'Test Plan', 'Other'];
 
 const INTERNAL_ROLES = ['Admin', 'CSM', 'PM', 'Sales'];
 

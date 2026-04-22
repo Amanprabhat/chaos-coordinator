@@ -18,7 +18,19 @@ interface Props {
   theme?: 'dark' | 'light';
   /** Extra count to include in badge (e.g. pending approvals from a separate source) */
   pendingApprovals?: number;
+  /** Override default project navigation — receives project id + notification type so caller can route to the right tab */
+  onProjectClick?: (projectId: number, notificationType: string) => void;
 }
+
+/** Maps notification type → the tab name to open on the project dashboard */
+const TYPE_TAB: Record<string, string> = {
+  discussion_message:   'discussion',
+  task_overdue:         'wbs',
+  task_nudge_manager:   'wbs',
+  client_request_raised:'wbs',
+  project_approved:     'overview',
+  project_rejected:     'overview',
+};
 
 const TYPE_ICON: Record<string, { bg: string; icon: React.ReactNode }> = {
   task_overdue: {
@@ -65,7 +77,7 @@ function timeAgo(dateStr: string): string {
   return `${Math.floor(hrs / 24)}d ago`;
 }
 
-const NotificationBell: React.FC<Props> = ({ userId, theme = 'dark', pendingApprovals = 0 }) => {
+const NotificationBell: React.FC<Props> = ({ userId, theme = 'dark', pendingApprovals = 0, onProjectClick }) => {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
@@ -237,7 +249,15 @@ const NotificationBell: React.FC<Props> = ({ userId, theme = 'dark', pendingAppr
                       key={n.id}
                       onClick={() => {
                         if (!n.is_read) markRead(n.id);
-                        if (n.project_id) { setOpen(false); navigate(`/project/${n.project_id}`); }
+                        if (n.project_id) {
+                          setOpen(false);
+                          if (onProjectClick) {
+                            onProjectClick(n.project_id, n.type);
+                          } else {
+                            const tab = TYPE_TAB[n.type];
+                            navigate(`/project/${n.project_id}${tab ? `?tab=${tab}` : ''}`);
+                          }
+                        }
                       }}
                       className={`flex items-start gap-3 px-4 py-3 transition-colors cursor-pointer ${
                         n.is_read ? 'bg-white hover:bg-gray-50' : 'bg-indigo-50/60 hover:bg-indigo-50'

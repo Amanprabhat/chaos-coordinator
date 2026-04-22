@@ -105,15 +105,16 @@ const ROLE_STATUSES: Record<string, string[]> = {
 };
 
 const ACTION_LABELS: Record<string, string> = {
-  start_date_changed:  'Start Date Changed',
-  stage_transition:    'Stage Transition',
-  wbs_plan_saved:      'WBS Plan Saved',
-  project_approved:    'Project Approved',
-  project_rejected:    'Project Rejected',
-  handover_initiated:  'Handover Initiated',
-  milestone_completed: 'Milestone Completed',
-  plan_generated:      'Plan Generated',
-  task_status_updated: 'Task Status Updated',
+  start_date_changed:       'Start Date Changed',
+  stage_transition:         'Stage Transition',
+  wbs_plan_saved:           'WBS Plan Saved',
+  wbs_task_status_changed:  'WBS Task Status Changed',
+  project_approved:         'Project Approved',
+  project_rejected:         'Project Rejected',
+  handover_initiated:       'Handover Initiated',
+  milestone_completed:      'Milestone Completed',
+  plan_generated:           'Plan Generated',
+  task_status_updated:      'Task Status Updated',
 };
 
 // ─── Mini components ──────────────────────────────────────────────────────────
@@ -304,9 +305,19 @@ const Analytics: React.FC = () => {
   const isSales = user?.role === 'Sales';
 
   const backPath = isAdmin ? '/admin-dashboard' : isCSM ? '/csm-dashboard' : isPM ? '/pm-dashboard' : '/sales-dashboard';
+
+  const ROLE_LABEL: Record<string, string> = {
+    Admin:            'Administrator',
+    CSM:              'Customer Success Manager',
+    PM:               'Project Manager',
+    'Product Manager':'Product Manager',
+    Sales:            'Sales',
+    Client:           'Client',
+  };
   const initials = (user?.name || '?').split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase();
 
   // ── State ──────────────────────────────────────────────────────────────────
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [tab, setTab]   = useState<'overview' | 'projects' | 'tasks' | 'activity' | 'audit'>('overview');
   const [data, setData] = useState<AnalyticsData | null>(null);
   const [audit, setAudit] = useState<AuditLog[]>([]);
@@ -372,10 +383,13 @@ const Analytics: React.FC = () => {
     setLoading(true);
     try {
       const scope = buildScope();
-      const [anaRes, auditRes] = await Promise.all([
+      const fetches: Promise<Response>[] = [
         fetch(`http://localhost:3001/api/dashboard/analytics?${scope}`),
-        fetch(`http://localhost:3001/api/dashboard/audit-log?limit=500&${scope}`),
-      ]);
+      ];
+      if (isAdmin) {
+        fetches.push(fetch(`http://localhost:3001/api/dashboard/audit-log?limit=500&user_role=Admin`));
+      }
+      const [anaRes, auditRes] = await Promise.all(fetches);
       if (anaRes.ok) {
         const anaData = await anaRes.json();
         setData(anaData);
@@ -387,7 +401,7 @@ const Analytics: React.FC = () => {
           });
         }
       }
-      if (auditRes.ok) {
+      if (auditRes?.ok) {
         const logs = await auditRes.json();
         for (const l of logs) try { if (typeof l.details === 'string') l.details = JSON.parse(l.details); } catch {}
         setAudit(logs);
@@ -397,6 +411,11 @@ const Analytics: React.FC = () => {
   }, [buildScope]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
+
+  useEffect(() => {
+    document.body.classList.toggle('sidebar-open', sidebarOpen);
+    return () => { document.body.classList.remove('sidebar-open'); };
+  }, [sidebarOpen]);
 
   // ── Quick filter helpers ───────────────────────────────────────────────────
   const clearFilters = () => {
@@ -450,9 +469,13 @@ const Analytics: React.FC = () => {
 
   // Sidebar nav
   const NAV = [
-    { label: 'Dashboard', path: backPath, icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg> },
+    { label: 'Dashboard',   path: backPath,    icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg> },
     { label: 'All Projects', path: '/projects', icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg> },
-    { label: 'Analytics', path: '/analytics', icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>, active: true },
+    { label: 'Analytics',   path: '/analytics', icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>, active: true },
+    ...(isAdmin ? [
+      { label: 'Client Requests', path: '/admin-dashboard?filter=CLIENT_REQUESTS', icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/></svg> },
+      { label: 'User Management', path: '/admin-dashboard?filter=USER_MANAGEMENT', icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/></svg> },
+    ] : []),
   ];
 
   const TABS = [
@@ -460,47 +483,73 @@ const Analytics: React.FC = () => {
     { key: 'projects',  label: 'Projects' },
     { key: 'tasks',     label: 'Tasks & WBS' },
     { key: 'activity',  label: 'Activity' },
-    { key: 'audit',     label: isAdmin ? 'Full Audit Log' : 'Activity Log' },
+    ...(isAdmin ? [{ key: 'audit' as const, label: 'Audit Trail' }] : []),
   ] as const;
 
   // ─── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="flex h-screen bg-slate-50 overflow-hidden">
 
+      {/* Mobile backdrop */}
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 z-20 bg-black/50 lg:hidden"
+          onClick={() => setSidebarOpen(false)}
+          aria-hidden="true"
+        />
+      )}
+
       {/* ════ SIDEBAR ════ */}
-      <aside className="w-56 flex-shrink-0 flex flex-col bg-slate-900 text-white">
+      <aside className={`sidebar-drawer fixed inset-y-0 left-0 z-30 w-72 flex flex-col bg-slate-900 text-white
+        lg:relative lg:translate-x-0 lg:w-56 lg:flex-shrink-0
+        ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
         <div className="flex items-center gap-3 px-5 py-5 border-b border-white/10">
           <img src="/logo192.png" alt="logo" className="w-9 h-9 rounded-xl object-cover flex-shrink-0 ring-2 ring-white/20 shadow-lg"
             onError={e => { (e.target as HTMLImageElement).style.display='none'; }} />
-          <div>
+          <div className="flex-1">
             <p className="text-sm font-bold text-white leading-tight">Chaos</p>
             <p className="text-sm font-bold text-indigo-400 leading-tight">Coordinator</p>
           </div>
+          <button
+            onClick={() => setSidebarOpen(false)}
+            aria-label="Close navigation"
+            className="lg:hidden p-1.5 text-white/40 hover:text-white rounded-md transition-colors"
+          >
+            <svg aria-hidden="true" className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
         </div>
 
         <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
           <p className="px-3 py-1 text-[10px] font-semibold text-white/30 uppercase tracking-widest mb-2">Menu</p>
           {NAV.map(item => (
-            <button key={item.path} onClick={() => navigate(item.path)}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
-                item.active ? 'bg-indigo-600 text-white' : 'text-white/50 hover:bg-white/10 hover:text-white'
-              }`}>
-              {item.icon}
-              {item.label}
-            </button>
-          ))}
-
-          {/* Analytics sub-nav */}
-          <div className="ml-3 mt-1 space-y-0.5 border-l border-white/10 pl-3">
-            {TABS.map(t => (
-              <button key={t.key} onClick={() => setTab(t.key)}
-                className={`w-full text-left px-2 py-1.5 rounded-md text-xs font-medium transition-all ${
-                  tab === t.key ? 'text-indigo-300 bg-white/10' : 'text-white/30 hover:text-white/60'
+            <React.Fragment key={item.path}>
+              <button onClick={() => { navigate(item.path); setSidebarOpen(false); }}
+                aria-current={item.active ? 'page' : undefined}
+                className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium transition-all ${
+                  item.active ? 'bg-indigo-600 text-white' : 'text-white/50 hover:bg-white/10 hover:text-white'
                 }`}>
-                {t.label}
+                <span aria-hidden="true">{item.icon}</span>
+                {item.label}
               </button>
-            ))}
-          </div>
+
+              {/* Sub-nav directly under Analytics */}
+              {item.label === 'Analytics' && (
+                <div className="ml-3 space-y-0.5 border-l border-white/10 pl-3 pb-1">
+                  {TABS.map(t => (
+                    <button key={t.key} onClick={() => setTab(t.key)}
+                      aria-current={tab === t.key ? 'page' : undefined}
+                      className={`w-full text-left px-2 py-1.5 rounded-md text-xs font-medium transition-all ${
+                        tab === t.key ? 'text-indigo-300 bg-white/10' : 'text-white/30 hover:text-white/60'
+                      }`}>
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </React.Fragment>
+          ))}
         </nav>
 
         <div className="px-3 py-4 border-t border-white/10">
@@ -510,11 +559,12 @@ const Analytics: React.FC = () => {
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-semibold text-white truncate">{user?.name}</p>
-              <p className="text-xs text-white/50">{user?.role}</p>
+              <p className="text-xs text-white/50">{ROLE_LABEL[user?.role ?? ''] ?? user?.role}</p>
             </div>
             <button onClick={() => { logout(); navigate('/login'); }}
+              aria-label="Sign out"
               className="p-1.5 text-white/30 hover:text-red-400 rounded-md transition-colors flex-shrink-0">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg aria-hidden="true" className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
               </svg>
             </button>
@@ -527,8 +577,18 @@ const Analytics: React.FC = () => {
 
         {/* ── Top header ── */}
         <header className="bg-white border-b border-gray-200 flex-shrink-0">
-          <div className="flex items-center justify-between px-6 py-3 gap-4">
-            <div>
+          <div className="flex items-center justify-between px-4 sm:px-6 py-3 gap-4">
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setSidebarOpen(true)}
+                aria-label="Open navigation"
+                className="lg:hidden p-2 rounded-lg text-gray-500 hover:bg-gray-100 transition-colors"
+              >
+                <svg aria-hidden="true" className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+                </svg>
+              </button>
+              <div>
               <div className="flex items-center gap-3">
                 <h1 className="text-lg font-black text-gray-900">Analytics</h1>
                 <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full text-white ${
@@ -547,6 +607,7 @@ const Analytics: React.FC = () => {
                   isPM    ? 'Your PM assignments' : 'Your owned projects'
                 }
               </p>
+            </div>
             </div>
             <div className="flex items-center gap-2">
               <select value={period} onChange={e => setPeriod(e.target.value)}
@@ -1533,7 +1594,28 @@ const Analytics: React.FC = () => {
                             {ACTION_LABELS[log.action]||log.action.replace(/_/g,' ')}
                           </span>
                           <div className="min-w-0">
-                            {typeof log.details === 'object' && log.details !== null ? (
+                            {log.action === 'wbs_task_status_changed' && typeof log.details === 'object' && log.details !== null ? (
+                              <div className="space-y-0.5">
+                                <p className="text-[11px] font-semibold text-gray-800 truncate">
+                                  {(log.details as any).wbs && <span className="text-gray-400 font-mono mr-1">{(log.details as any).wbs}</span>}
+                                  {(log.details as any).task_name || '—'}
+                                </p>
+                                <p className="text-[10px] text-gray-500">
+                                  <span className="font-semibold text-red-500">{String((log.details as any).old_status||'').replace(/_/g,' ')}</span>
+                                  {' → '}
+                                  <span className="font-semibold text-emerald-600">{String((log.details as any).new_status||'').replace(/_/g,' ')}</span>
+                                </p>
+                                {(log.details as any).sprint_label && (
+                                  <p className="text-[10px] text-gray-400 truncate">Sprint: {(log.details as any).sprint_label}</p>
+                                )}
+                                {(log.details as any).changed_by_name && (
+                                  <p className="text-[10px] text-gray-400 truncate">
+                                    By: {(log.details as any).changed_by_name}
+                                    {(log.details as any).changed_by_role && ` (${(log.details as any).changed_by_role})`}
+                                  </p>
+                                )}
+                              </div>
+                            ) : typeof log.details === 'object' && log.details !== null ? (
                               <div className="space-y-0.5">
                                 {Object.entries(log.details).slice(0,4).map(([k,v]) => (
                                   <p key={k} className="text-[10px] truncate">

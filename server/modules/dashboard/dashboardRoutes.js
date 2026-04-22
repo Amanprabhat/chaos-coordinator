@@ -479,11 +479,16 @@ router.get('/performance', async (req, res) => {
   }
 });
 
-// GET /api/dashboard/audit-log — activity trail, role-scoped
+// GET /api/dashboard/audit-log — activity trail, Admin-only for wbs audit
 // Params: limit, project_id, action, from, to, user_role, user_id, csm_id, pm_id, owner_id
 router.get('/audit-log', async (req, res) => {
   try {
     const { limit = 200, project_id, action, from, to, user_role, user_id, csm_id, pm_id, owner_id } = req.query;
+
+    // Audit trail is Admin-only — no other role gets access
+    if (user_role !== 'Admin') {
+      return res.status(403).json({ error: 'Access denied: audit trail is restricted to administrators' });
+    }
 
     // Scope to projects visible to the requesting user
     let scopedProjectIds = null;
@@ -802,7 +807,7 @@ router.get('/analytics', async (req, res) => {
     const activeProjs = allProjects.filter(p => ['ACTIVE', 'APPROVED'].includes(p.status));
     const avgProjectAgeDays = activeProjs.length > 0
       ? Math.round(activeProjs.reduce((s, p) => {
-          const raw = (p.created_at || '').split('T')[0].split(' ')[0];
+          const raw = new Date(p.created_at).toISOString().split('T')[0];
           const d = new Date(raw + 'T00:00:00');
           return s + (Date.now() - d.getTime()) / 86400000;
         }, 0) / activeProjs.length)

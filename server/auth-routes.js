@@ -28,8 +28,8 @@ const setupAuthRoutes = (app) => {
         return res.status(400).json({ error: 'Email and password are required' });
       }
 
-      // Try real DB user first
-      let user = await db('users').where({ email }).first();
+      // Try real DB user first (case-insensitive email match)
+      let user = await db('users').whereRaw('LOWER(email) = ?', [email.toLowerCase()]).first();
       let passwordValid = false;
 
       if (user) {

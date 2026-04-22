@@ -241,10 +241,6 @@ const SalesIntakePage: React.FC = () => {
           setError('Please describe how success will be measured');
           return false;
         }
-        if (formData.integrations_required.trim() && !formData.integration_details.trim()) {
-          setError('Integration Details are required when integrations are specified');
-          return false;
-        }
         return true;
       default:
         return true;
@@ -1126,27 +1122,6 @@ Agenda: Project handover, scope review, next steps.`
                       className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                       rows={2}
                       placeholder="List any required integrations..."
-                    />
-                  </div>
-
-                  {/* ── NEW: Integration Details (required if integrations_required is filled) ── */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                      Integration Details{formData.integrations_required.trim() ? ' *' : ''}
-                    </label>
-                    <p className="text-xs text-gray-400 mb-2">Describe APIs, systems, and data flows involved</p>
-                    <textarea
-                      value={formData.integration_details}
-                      onChange={(e) => handleInputChange('integration_details', e.target.value)}
-                      className={`w-full px-3 py-2.5 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 ${
-                        formData.integrations_required.trim() && !formData.integration_details.trim()
-                          ? 'border-amber-300 bg-amber-50/30'
-                          : formData.integration_details.trim()
-                          ? 'border-emerald-300 bg-emerald-50/30'
-                          : 'border-gray-300'
-                      }`}
-                      rows={3}
-                      placeholder="Describe the APIs, third-party systems, and data flows involved..."
                     />
                   </div>
 

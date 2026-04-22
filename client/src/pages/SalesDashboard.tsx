@@ -344,6 +344,7 @@ const SalesDashboard: React.FC = () => {
   const [tourActive,  setTourActive]  = useState(false);
   const [tourStep,    setTourStep]    = useState(0);
   const [targetRect,  setTargetRect]  = useState<DOMRect | null>(null);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   // Refs for tour targets
   const sidebarRef  = useRef<HTMLElement>(null);
@@ -362,6 +363,11 @@ const SalesDashboard: React.FC = () => {
     const seen = sessionStorage.getItem('cc_welcome_shown');
     if (!seen) setShowWelcome(true);
   }, []);
+
+  useEffect(() => {
+    document.body.classList.toggle('sidebar-open', sidebarOpen);
+    return () => { document.body.classList.remove('sidebar-open'); };
+  }, [sidebarOpen]);
 
   useEffect(() => {
     fetchProjects()
@@ -454,15 +460,38 @@ const SalesDashboard: React.FC = () => {
 
       <div className="flex h-screen bg-[#F8F9FC] overflow-hidden">
 
+        {/* Mobile backdrop */}
+        {sidebarOpen && (
+          <div
+            className="fixed inset-0 z-20 bg-black/50 lg:hidden"
+            onClick={() => setSidebarOpen(false)}
+            aria-hidden="true"
+          />
+        )}
+
         {/* ── SIDEBAR ─────────────────────────────────────────────────────── */}
-        <aside ref={sidebarRef} className="w-64 flex-shrink-0 flex flex-col bg-slate-900 text-white relative z-30">
+        <aside
+          ref={sidebarRef}
+          className={`sidebar-drawer fixed inset-y-0 left-0 z-30 w-72 flex flex-col bg-slate-900 text-white
+            lg:relative lg:translate-x-0 lg:w-64 lg:flex-shrink-0
+            ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}
+        >
 
           <div className="flex items-center gap-3 px-5 py-5 border-b border-white/10">
             <img src="/logo192.png" alt="Chaos Coordinator" className="w-9 h-9 rounded-xl object-cover flex-shrink-0 ring-2 ring-white/20 shadow-lg" />
-            <div>
+            <div className="flex-1">
               <p className="text-sm font-bold text-white leading-tight">Chaos</p>
               <p className="text-sm font-bold text-indigo-400 leading-tight">Coordinator</p>
             </div>
+            <button
+              onClick={() => setSidebarOpen(false)}
+              aria-label="Close navigation"
+              className="lg:hidden p-1.5 text-white/40 hover:text-white rounded-md transition-colors"
+            >
+              <svg aria-hidden="true" className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
           </div>
 
           {/* Nav */}
@@ -473,14 +502,15 @@ const SalesDashboard: React.FC = () => {
               return (
                 <button
                   key={item.path}
-                  onClick={() => { setActiveNav(item.path); navigate(item.path); }}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150 ${
+                  onClick={() => { setActiveNav(item.path); navigate(item.path); setSidebarOpen(false); }}
+                  aria-current={active ? 'page' : undefined}
+                  className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium transition-all duration-150 ${
                     active
                       ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-900/40'
                       : 'text-white/50 hover:bg-white/10 hover:text-white'
                   }`}
                 >
-                  {item.icon}
+                  <span aria-hidden="true">{item.icon}</span>
                   {item.label}
                 </button>
               );
@@ -508,14 +538,14 @@ const SalesDashboard: React.FC = () => {
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-semibold text-white truncate">{user?.name ?? 'User'}</p>
-                <p className="text-xs text-white/50">{user?.role ?? 'Sales'}</p>
+                <p className="text-xs text-white/50">Sales</p>
               </div>
               <button
                 onClick={() => { logout(); navigate('/login'); }}
-                title="Sign out"
+                aria-label="Sign out"
                 className="p-1.5 text-white/30 hover:text-red-400 rounded-md transition-colors"
               >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg aria-hidden="true" className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
                 </svg>
               </button>
@@ -527,12 +557,23 @@ const SalesDashboard: React.FC = () => {
         <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
 
           {/* Top bar */}
-          <header className="flex items-center justify-between px-8 py-4 bg-white border-b border-gray-100 flex-shrink-0">
-            <div>
-              <h1 className="text-xl font-bold text-gray-900">Sales Dashboard</h1>
-              <p className="text-sm text-gray-500 mt-0.5">
-                {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
-              </p>
+          <header className="flex items-center justify-between px-4 sm:px-6 lg:px-8 py-4 bg-white border-b border-gray-100 flex-shrink-0">
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setSidebarOpen(true)}
+                aria-label="Open navigation"
+                className="lg:hidden p-2 rounded-lg text-gray-500 hover:bg-gray-100 transition-colors"
+              >
+                <svg aria-hidden="true" className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+                </svg>
+              </button>
+              <div>
+                <h1 className="text-lg sm:text-xl font-bold text-gray-900">Sales Dashboard</h1>
+                <p className="text-sm text-gray-500 mt-0.5">
+                  {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+                </p>
+              </div>
             </div>
 
             {/* Highlighted CTA button with pulsing ring */}
