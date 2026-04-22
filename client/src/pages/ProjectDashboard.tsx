@@ -1038,8 +1038,6 @@ const ProjectDashboard: React.FC = () => {
                       <div style={{minWidth:'920px'}}>
 
                       {/* Column header strip — pl matches row indent: pl-4(16) + w-4(16) + gap(8) + w-3(12) + gap(8) = 60px */}
-                      <div className="overflow-x-auto -mx-1">
-                      <div className="min-w-[700px]">
                       <div className="flex items-center gap-2 pr-4 py-1.5 bg-gray-50 border border-gray-200 rounded-lg mb-1 text-[9px] font-bold text-gray-400 uppercase tracking-wider" style={{paddingLeft:'60px'}}>
                         <span className="w-16 flex-shrink-0">WBS #</span>
                         <span className="w-24 flex-shrink-0">Type</span>
@@ -1361,8 +1359,6 @@ const ProjectDashboard: React.FC = () => {
                           </div>
                         );
                       })()}
-                      </div>{/* /min-w */}
-                      </div>{/* /overflow-x-auto */}
                     </>
                   )}
                 </div>
