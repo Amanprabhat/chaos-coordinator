@@ -205,6 +205,7 @@ const ProjectDashboard: React.FC = () => {
   const [risks, setRisks]           = useState<Risk[]>([]);
   const [loading, setLoading]       = useState(true);
   const [error, setError]           = useState<string | null>(null);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [activeTab, setActiveTab]   = useState<'overview' | 'wbs' | 'gantt' | 'discussion'>(() => {
     const t = new URLSearchParams(location.search).get('tab');
     return (t === 'wbs' || t === 'gantt' || t === 'discussion') ? t : 'overview';
@@ -257,6 +258,12 @@ const ProjectDashboard: React.FC = () => {
     user?.role === 'CSM'   ? '/csm-dashboard'  :
     user?.role === 'PM'    ? '/pm-dashboard'    :
     user?.role === 'Admin' ? '/admin-dashboard' : '/sales-dashboard';
+
+  // ── Sidebar scroll lock ────────────────────────────────────────────────────
+  useEffect(() => {
+    document.body.classList.toggle('sidebar-open', sidebarOpen);
+    return () => { document.body.classList.remove('sidebar-open'); };
+  }, [sidebarOpen]);
 
   // ── Fetch ──────────────────────────────────────────────────────────────────
   const fetchAll = useCallback(() => {
@@ -753,17 +760,30 @@ const ProjectDashboard: React.FC = () => {
   return (
     <div className="min-h-screen bg-gray-50 flex">
 
+      {/* Mobile backdrop */}
+      {sidebarOpen && (
+        <div className="fixed inset-0 z-20 bg-black/50 lg:hidden" onClick={() => setSidebarOpen(false)} aria-hidden="true" />
+      )}
+
       {/* ── SIDEBAR ────────────────────────────────────────────────────────── */}
-      <aside className="w-64 bg-slate-900 flex flex-col flex-shrink-0 h-screen sticky top-0">
+      <aside className={`sidebar-drawer fixed inset-y-0 left-0 z-30 w-72 bg-slate-900 flex flex-col flex-shrink-0
+        lg:relative lg:translate-x-0 lg:w-64 lg:h-screen lg:sticky lg:top-0
+        ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
         {/* Logo — consistent with other dashboards */}
         <div className="px-5 py-5 border-b border-white/10">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-1 min-w-0">
             <img src="/logo192.png" alt="Chaos Coordinator" className="w-9 h-9 rounded-xl object-cover flex-shrink-0 ring-2 ring-white/20 shadow-lg" />
             <div className="min-w-0">
               <p className="text-white font-bold text-sm leading-tight">Chaos Coordinator</p>
               <p className="text-slate-400 text-[10px]">Project OS</p>
             </div>
           </div>
+          <button onClick={() => setSidebarOpen(false)} aria-label="Close navigation"
+            className="lg:hidden p-1.5 text-white/40 hover:text-white rounded-md transition-colors flex-shrink-0">
+            <svg aria-hidden="true" className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
         </div>
 
         {/* Nav */}
@@ -809,7 +829,13 @@ const ProjectDashboard: React.FC = () => {
       <div className="flex-1 flex flex-col min-w-0 overflow-auto">
 
         {/* Header bar */}
-        <header className="bg-white border-b border-gray-200 px-6 py-4 flex items-start gap-4 flex-shrink-0">
+        <header className="bg-white border-b border-gray-200 px-4 sm:px-6 py-4 flex items-start gap-3 flex-shrink-0">
+          <button onClick={() => setSidebarOpen(true)} aria-label="Open navigation"
+            className="lg:hidden mt-0.5 p-1.5 rounded-lg text-gray-500 hover:bg-gray-100 transition-colors flex-shrink-0">
+            <svg aria-hidden="true" className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+            </svg>
+          </button>
           <button onClick={() => navigate(-1)} className="mt-0.5 text-gray-400 hover:text-gray-600 transition-colors flex-shrink-0">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
           </button>
@@ -839,8 +865,8 @@ const ProjectDashboard: React.FC = () => {
           <div className="flex-1 flex flex-col min-w-0 overflow-auto">
 
             {/* Tabs */}
-            <div className="bg-white border-b border-gray-200 px-6 flex-shrink-0">
-              <div className="flex gap-0">
+            <div className="bg-white border-b border-gray-200 px-4 sm:px-6 flex-shrink-0 overflow-x-auto">
+              <div className="flex gap-0 min-w-max">
                 {([
                   { id: 'overview',    label: 'Overview'    },
                   { id: 'wbs',         label: 'WBS Plan'    },
@@ -1012,6 +1038,8 @@ const ProjectDashboard: React.FC = () => {
                       <div style={{minWidth:'920px'}}>
 
                       {/* Column header strip — pl matches row indent: pl-4(16) + w-4(16) + gap(8) + w-3(12) + gap(8) = 60px */}
+                      <div className="overflow-x-auto -mx-1">
+                      <div className="min-w-[700px]">
                       <div className="flex items-center gap-2 pr-4 py-1.5 bg-gray-50 border border-gray-200 rounded-lg mb-1 text-[9px] font-bold text-gray-400 uppercase tracking-wider" style={{paddingLeft:'60px'}}>
                         <span className="w-16 flex-shrink-0">WBS #</span>
                         <span className="w-24 flex-shrink-0">Type</span>
@@ -1297,7 +1325,7 @@ const ProjectDashboard: React.FC = () => {
                               showAddSprint ? (
                                 <div className="rounded-2xl border border-dashed border-indigo-300 bg-indigo-50 p-5">
                                   <h4 className="text-xs font-bold text-indigo-600 mb-3">New Sprint</h4>
-                                  <div className="grid grid-cols-3 gap-3 mb-3">
+                                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
                                     <div>
                                       <label className="text-[10px] text-gray-500 font-semibold uppercase">Sprint Label *</label>
                                       <input className="mt-1 w-full text-sm border border-gray-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-400"
@@ -1400,7 +1428,8 @@ const ProjectDashboard: React.FC = () => {
                           </div>
                         </div>
 
-                        <div id="gantt-printable" className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+                        <div className="overflow-x-auto -mx-1">
+                        <div id="gantt-printable" className="bg-white rounded-2xl border border-gray-200 overflow-hidden min-w-[640px]">
                           {/* Sprint band header */}
                           <div className="flex border-b border-gray-200">
                             <div className="w-56 flex-shrink-0 border-r border-gray-200 px-4 py-2 bg-gray-50 flex items-center">
@@ -1539,6 +1568,7 @@ const ProjectDashboard: React.FC = () => {
                             </div>
                           </div>
                         </div>
+                        </div>{/* end overflow-x-auto */}
                       </>
                     )}
                   </div>
@@ -1555,7 +1585,7 @@ const ProjectDashboard: React.FC = () => {
           </div>
 
           {/* ── RIGHT PANEL ───────────────────────────────────────────────── */}
-          <aside className="w-72 flex-shrink-0 border-l border-gray-200 bg-white overflow-auto">
+          <aside className="hidden lg:block w-72 flex-shrink-0 border-l border-gray-200 bg-white overflow-auto">
             <div className="p-5 space-y-6">
 
               {/* Team */}

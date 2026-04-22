@@ -1206,7 +1206,7 @@ const StandardApproachGuide: React.FC<{ role: 'CSM' | 'PM' | 'Product' }> = ({ r
         <p className="text-xs text-gray-400 mt-0.5">{subtitle}</p>
       </div>
 
-      <div className="grid grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {phases.map((phase, phaseIdx) => (
           <div key={phase.key} className={`rounded-2xl border p-3 ${phase.color}`}>
             {/* Phase header */}
@@ -1687,7 +1687,7 @@ const CSMDashboard: React.FC = () => {
             <div className="flex-1 overflow-y-auto px-6 py-6 min-w-0">
 
               {/* Stats */}
-              <div ref={statsRef} className="grid grid-cols-5 gap-3 mb-6">
+              <div ref={statsRef} className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-6">
                 {[
                   {
                     label: 'My Projects', value: stats.total, color: 'text-gray-900', accent: 'bg-indigo-500',
@@ -2005,7 +2005,7 @@ const CSMDashboard: React.FC = () => {
             </div>
 
             {/* ── RIGHT: tasks, milestones, actions ────────────────────── */}
-            <aside ref={rightPanelRef} className="w-80 flex-shrink-0 border-l border-gray-100 bg-white overflow-y-auto px-5 py-6 space-y-6">
+            <aside ref={rightPanelRef} className="hidden lg:block w-80 flex-shrink-0 border-l border-gray-100 bg-white overflow-y-auto px-5 py-6 space-y-6">
 
               {/* Focus Today */}
               {(() => {

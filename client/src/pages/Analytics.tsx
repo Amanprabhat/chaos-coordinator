@@ -1382,7 +1382,7 @@ const Analytics: React.FC = () => {
               {tab === 'tasks' && (
                 <div className="space-y-6">
                   {/* WBS rate big display */}
-                  <div className="grid grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                     <div className="col-span-1 bg-gradient-to-br from-indigo-500 to-violet-600 rounded-2xl p-6 text-white shadow-lg">
                       <p className="text-xs font-bold text-white/70 uppercase tracking-widest mb-2">WBS Completion</p>
                       <p className="text-5xl font-black">{wbsRate}%</p>

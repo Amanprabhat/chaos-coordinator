@@ -598,10 +598,10 @@ const SalesDashboard: React.FC = () => {
             )}
           </header>
 
-          <div className="flex-1 overflow-y-auto px-8 py-6">
+          <div className="flex-1 overflow-y-auto px-4 sm:px-8 py-6">
 
             {/* Stats row — 3 cards, no Handover Pending */}
-            <div ref={statsRef} className="grid grid-cols-3 gap-4 mb-8">
+            <div ref={statsRef} className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
               {[
                 { label: 'Total Projects',    value: stats.total,            color: 'text-gray-900',   sub: 'all time',            icon: '📁' },
                 { label: 'In Progress',       value: stats.inProgress,       color: 'text-blue-600',   sub: 'active pipeline',     icon: '⚡' },
@@ -684,7 +684,7 @@ const SalesDashboard: React.FC = () => {
         </main>
 
         {/* ── RIGHT ACTION PANEL ────────────────────────────────────────────── */}
-        <aside ref={insightsRef} className="w-72 flex-shrink-0 flex flex-col bg-white border-l border-gray-100 overflow-hidden relative z-30">
+        <aside ref={insightsRef} className="hidden lg:flex w-72 flex-shrink-0 flex-col bg-white border-l border-gray-100 overflow-hidden relative z-30">
 
           {/* Header with two sections */}
           <div className="px-5 py-4 border-b border-gray-100">
