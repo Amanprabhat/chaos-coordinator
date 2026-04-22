@@ -545,7 +545,7 @@ const AllProjectsPage: React.FC = () => {
   const initials = user?.name?.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase() ?? 'U';
 
   useEffect(() => {
-    fetch('http://localhost:3001/api/projects')
+    fetch(`${process.env.REACT_APP_API_URL || ""}/api/projects`)
       .then(r => r.json())
       .then(data => setProjects(Array.isArray(data) ? [...data].sort((a, b) => a.name.localeCompare(b.name)) : []))
       .catch(console.error)

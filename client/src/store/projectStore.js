@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
 
 // API base URL - adjust as needed for your environment
-const API_BASE = process.env.REACT_APP_API_BASE || 'http://localhost:3001/api';
+const API_BASE = process.env.REACT_APP_API_BASE || `${process.env.REACT_APP_API_URL || ""}/api`;
 
 /**
  * Project State Store - Central state management for project data

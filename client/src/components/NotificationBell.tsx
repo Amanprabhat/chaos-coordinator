@@ -86,7 +86,7 @@ const NotificationBell: React.FC<Props> = ({ userId, theme = 'dark', pendingAppr
 
   const fetchNotifications = useCallback(async () => {
     try {
-      const res = await fetch(`http://localhost:3001/api/notifications?user_id=${userId}&limit=20`);
+      const res = await fetch(`${process.env.REACT_APP_API_URL || ""}/api/notifications?user_id=${userId}&limit=20`);
       if (!res.ok) return;
       const data: Notification[] = await res.json();
       setNotifications(data);
@@ -110,13 +110,13 @@ const NotificationBell: React.FC<Props> = ({ userId, theme = 'dark', pendingAppr
   }, []);
 
   const markRead = async (id: number) => {
-    await fetch(`http://localhost:3001/api/notifications/${id}/read`, { method: 'POST' });
+    await fetch(`${process.env.REACT_APP_API_URL || ""}/api/notifications/${id}/read`, { method: 'POST' });
     setNotifications(prev => prev.map(n => n.id === id ? { ...n, is_read: true } : n));
     setUnreadCount(prev => Math.max(0, prev - 1));
   };
 
   const markAllRead = async () => {
-    await fetch(`http://localhost:3001/api/notifications/read-all?user_id=${userId}`, { method: 'POST' });
+    await fetch(`${process.env.REACT_APP_API_URL || ""}/api/notifications/read-all?user_id=${userId}`, { method: 'POST' });
     setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
     setUnreadCount(0);
   };

@@ -140,7 +140,7 @@ const DiscussionForum: React.FC<Props> = ({ projectId, projectName }) => {
     setLoading(true);
     try {
       const res = await fetch(
-        `http://localhost:3001/api/projects/${projectId}/discussions?viewer_role=${user?.role || ''}`
+        `${process.env.REACT_APP_API_URL || ""}/api/projects/${projectId}/discussions?viewer_role=${user?.role || ''}`
       );
       if (res.ok) {
         const data = await res.json();
@@ -156,7 +156,7 @@ const DiscussionForum: React.FC<Props> = ({ projectId, projectName }) => {
   // Fetch team members for @mention (internal only)
   useEffect(() => {
     if (!isInternal) return;
-    fetch(`http://localhost:3001/api/projects/${projectId}/team-members`)
+    fetch(`${process.env.REACT_APP_API_URL || ""}/api/projects/${projectId}/team-members`)
       .then(r => r.ok ? r.json() : [])
       .then(setTeamMembers)
       .catch(() => {});
@@ -210,7 +210,7 @@ const DiscussionForum: React.FC<Props> = ({ projectId, projectName }) => {
     if (!newMessage.trim() || posting) return;
     setPosting(true);
     try {
-      const res = await fetch(`http://localhost:3001/api/projects/${projectId}/discussions`, {
+      const res = await fetch(`${process.env.REACT_APP_API_URL || ""}/api/projects/${projectId}/discussions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -235,7 +235,7 @@ const DiscussionForum: React.FC<Props> = ({ projectId, projectName }) => {
 
   const deleteMessage = async (id: number) => {
     if (!window.confirm('Delete this message?')) return;
-    await fetch(`http://localhost:3001/api/projects/${projectId}/discussions/${id}`, { method: 'DELETE' });
+    await fetch(`${process.env.REACT_APP_API_URL || ""}/api/projects/${projectId}/discussions/${id}`, { method: 'DELETE' });
     setMessages(prev => prev.filter(m => m.id !== id));
   };
 
@@ -252,7 +252,7 @@ const DiscussionForum: React.FC<Props> = ({ projectId, projectName }) => {
       form.append('user_role', user?.role || 'Unknown');
       form.append('category',  uploadCategory);
       form.append('description', uploadDesc);
-      const res = await fetch(`http://localhost:3001/api/projects/${projectId}/documents`, {
+      const res = await fetch(`${process.env.REACT_APP_API_URL || ""}/api/projects/${projectId}/documents`, {
         method: 'POST', body: form,
       });
       if (res.ok) {
@@ -268,7 +268,7 @@ const DiscussionForum: React.FC<Props> = ({ projectId, projectName }) => {
 
   const deleteDocument = async (id: number) => {
     if (!window.confirm('Delete this document?')) return;
-    await fetch(`http://localhost:3001/api/projects/${projectId}/documents/${id}`, { method: 'DELETE' });
+    await fetch(`${process.env.REACT_APP_API_URL || ""}/api/projects/${projectId}/documents/${id}`, { method: 'DELETE' });
     setDocuments(prev => prev.filter(d => d.id !== id));
   };
 
@@ -677,7 +677,7 @@ const DiscussionForum: React.FC<Props> = ({ projectId, projectName }) => {
                             {doc.description && <p className="text-[11px] text-gray-500 mt-0.5 truncate">{doc.description}</p>}
                           </div>
                           <div className="flex items-center gap-1 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <a href={`http://localhost:3001/api/projects/${projectId}/documents/${doc.id}/download`}
+                            <a href={`${process.env.REACT_APP_API_URL || ""}/api/projects/${projectId}/documents/${doc.id}/download`}
                               target="_blank" rel="noreferrer"
                               className="p-2 text-indigo-600 hover:bg-indigo-100 rounded-lg transition-colors" title="Download">
                               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

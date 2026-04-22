@@ -290,7 +290,7 @@ const ProjectDrawer: React.FC<DrawerProps> = ({ project, onClose, onApprove, onR
 
   const openEditTeam = async () => {
     if (!allUsers.length) {
-      const r = await fetch('http://localhost:3001/api/users/all');
+      const r = await fetch(`${process.env.REACT_APP_API_URL || ""}/api/users/all`);
       if (r.ok) setAllUsers(await r.json());
     }
     setTeamForm({
@@ -304,7 +304,7 @@ const ProjectDrawer: React.FC<DrawerProps> = ({ project, onClose, onApprove, onR
   const saveTeam = async () => {
     setSavingTeam(true);
     try {
-      const r = await fetch(`http://localhost:3001/api/projects/${project.id}`, {
+      const r = await fetch(`${process.env.REACT_APP_API_URL || ""}/api/projects/${project.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -556,7 +556,7 @@ const ProjectDrawer: React.FC<DrawerProps> = ({ project, onClose, onApprove, onR
                   <p className="text-sm font-semibold text-white truncate">{project.sow_file_name || 'SOW Document'}</p>
                   <div className="flex items-center gap-2">
                     <a
-                      href={`http://localhost:3001/api/projects/${project.id}/download-sow`}
+                      href={`${process.env.REACT_APP_API_URL || ""}/api/projects/${project.id}/download-sow`}
                       className="text-xs font-semibold text-indigo-300 hover:text-white px-3 py-1.5 rounded-lg hover:bg-white/10 transition-colors"
                     >
                       Download
@@ -572,7 +572,7 @@ const ProjectDrawer: React.FC<DrawerProps> = ({ project, onClose, onApprove, onR
                   </div>
                 </div>
                 <iframe
-                  src={`http://localhost:3001/api/projects/${project.id}/view-sow`}
+                  src={`${process.env.REACT_APP_API_URL || ""}/api/projects/${project.id}/view-sow`}
                   className="flex-1 w-full"
                   title="SOW Document"
                 />
@@ -597,7 +597,7 @@ const ProjectDrawer: React.FC<DrawerProps> = ({ project, onClose, onApprove, onR
                   View
                 </button>
                 <a
-                  href={`http://localhost:3001/api/projects/${project.id}/download-sow`}
+                  href={`${process.env.REACT_APP_API_URL || ""}/api/projects/${project.id}/download-sow`}
                   className="text-xs font-semibold text-gray-500 hover:text-gray-700 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
                 >
                   Download
@@ -983,7 +983,7 @@ const UserManagementView: React.FC = () => {
   const fetchUsers = async () => {
     setLoadingUsers(true);
     try {
-      const r = await fetch('http://localhost:3001/api/users/all');
+      const r = await fetch(`${process.env.REACT_APP_API_URL || ""}/api/users/all`);
       if (r.ok) setUsers(await r.json());
     } finally { setLoadingUsers(false); }
   };
@@ -1005,7 +1005,7 @@ const UserManagementView: React.FC = () => {
   const fetchProjectsForAssignment = async (clientEmail?: string) => {
     setLoadingProjects(true);
     try {
-      const r = await fetch('http://localhost:3001/api/projects');
+      const r = await fetch(`${process.env.REACT_APP_API_URL || ""}/api/projects`);
       const data: { id: number; name: string; client_name: string; status: string; client_spoc_email?: string }[] = r.ok ? await r.json() : [];
       setAvailableProjects(data);
       if (clientEmail) {
@@ -1043,14 +1043,14 @@ const UserManagementView: React.FC = () => {
     try {
       let savedId: number | null = null;
       if (editTarget) {
-        await fetch(`http://localhost:3001/api/users/${editTarget.id}`, {
+        await fetch(`${process.env.REACT_APP_API_URL || ""}/api/users/${editTarget.id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ ...form, password: form.password || undefined }),
         });
         savedId = editTarget.id;
       } else {
-        const r = await fetch('http://localhost:3001/api/users', {
+        const r = await fetch(`${process.env.REACT_APP_API_URL || ""}/api/users`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(form),
@@ -1065,7 +1065,7 @@ const UserManagementView: React.FC = () => {
       }
       // Sync project assignments for Client users
       if (form.role === 'Client' && savedId) {
-        await fetch(`http://localhost:3001/api/users/${savedId}/assign-projects`, {
+        await fetch(`${process.env.REACT_APP_API_URL || ""}/api/users/${savedId}/assign-projects`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ project_ids: assignedProjectIds, email: form.email.trim(), name: form.name.trim() }),
@@ -1077,7 +1077,7 @@ const UserManagementView: React.FC = () => {
   };
 
   const handleToggleActive = async (u: AppUser) => {
-    await fetch(`http://localhost:3001/api/users/${u.id}`, {
+    await fetch(`${process.env.REACT_APP_API_URL || ""}/api/users/${u.id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ is_active: !u.is_active }),
@@ -1089,7 +1089,7 @@ const UserManagementView: React.FC = () => {
     if (!deleteTarget) return;
     setDeleting(true);
     try {
-      await fetch(`http://localhost:3001/api/users/${deleteTarget.id}`, { method: 'DELETE' });
+      await fetch(`${process.env.REACT_APP_API_URL || ""}/api/users/${deleteTarget.id}`, { method: 'DELETE' });
       setDeleteTarget(null);
       await fetchUsers();
     } finally { setDeleting(false); }
@@ -1573,7 +1573,7 @@ const ClientRequestsView: React.FC = () => {
   const fetch_ = async () => {
     setLoading(true);
     try {
-      const r = await fetch('http://localhost:3001/api/client-requests/all');
+      const r = await fetch(`${process.env.REACT_APP_API_URL || ""}/api/client-requests/all`);
       if (r.ok) setRequests(await r.json());
     } finally { setLoading(false); }
   };
@@ -1591,7 +1591,7 @@ const ClientRequestsView: React.FC = () => {
     if (!reviewTarget || !action) return;
     setSaving(true);
     try {
-      await fetch(`http://localhost:3001/api/projects/${reviewTarget.project_id}/client-requests/${reviewTarget.id}`, {
+      await fetch(`${process.env.REACT_APP_API_URL || ""}/api/projects/${reviewTarget.project_id}/client-requests/${reviewTarget.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1917,7 +1917,7 @@ const AdminDashboard: React.FC = () => {
 
   const fetchProjects = async () => {
     try {
-      const res = await fetch('http://localhost:3001/api/projects');
+      const res = await fetch(`${process.env.REACT_APP_API_URL || ""}/api/projects`);
       if (!res.ok) throw new Error('Failed');
       const data = await res.json();
       setProjects([...data].sort((a: Project, b: Project) => a.name.localeCompare(b.name)));
@@ -1933,7 +1933,7 @@ const AdminDashboard: React.FC = () => {
   const handleApprove = async (id: number) => {
     setApproving(true);
     try {
-      const res = await fetch(`http://localhost:3001/api/projects/${id}/approve`, {
+      const res = await fetch(`${process.env.REACT_APP_API_URL || ""}/api/projects/${id}/approve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ approved_by: user?.id }),
@@ -1953,7 +1953,7 @@ const AdminDashboard: React.FC = () => {
   const handleReject = async (id: number, reason: string) => {
     setApproving(true);
     try {
-      const res = await fetch(`http://localhost:3001/api/projects/${id}/reject`, {
+      const res = await fetch(`${process.env.REACT_APP_API_URL || ""}/api/projects/${id}/reject`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ rejected_by: user?.id, rejection_reason: reason }),

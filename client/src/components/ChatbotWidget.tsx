@@ -69,7 +69,7 @@ const InternalBot: React.FC = () => {
     setMessages(prev => [...prev, { role: 'user', text: q }]);
     setLoading(true);
     try {
-      const r = await fetch('http://localhost:3001/api/chatbot/search', {
+      const r = await fetch(`${process.env.REACT_APP_API_URL || ""}/api/chatbot/search`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query: q }),

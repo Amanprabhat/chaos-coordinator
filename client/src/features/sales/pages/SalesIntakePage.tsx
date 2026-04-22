@@ -111,7 +111,7 @@ const SalesIntakePage: React.FC = () => {
   // Fetch users from API
   const fetchUsers = async () => {
     try {
-      const response = await fetch('http://localhost:3001/api/users');
+      const response = await fetch(`${process.env.REACT_APP_API_URL || ""}/api/users`);
       if (!response.ok) throw new Error('Failed to fetch users');
       const data = await response.json();
       setUsers(data);
@@ -345,7 +345,7 @@ Agenda: Project handover, scope review, next steps.`
         budget_range:          formData.budget_range || undefined,
       };
 
-      const response = await fetch('http://localhost:3001/api/projects', {
+      const response = await fetch(`${process.env.REACT_APP_API_URL || ""}/api/projects`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -364,7 +364,7 @@ Agenda: Project handover, scope review, next steps.`
         try {
           const sowForm = new FormData();
           sowForm.append('sow_file', formData.sow_upload);
-          await fetch(`http://localhost:3001/api/projects/${result.id}/upload-sow`, {
+          await fetch(`${process.env.REACT_APP_API_URL || ""}/api/projects/${result.id}/upload-sow`, {
             method: 'POST',
             body: sowForm,
           });

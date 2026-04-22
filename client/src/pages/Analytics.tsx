@@ -384,10 +384,10 @@ const Analytics: React.FC = () => {
     try {
       const scope = buildScope();
       const fetches: Promise<Response>[] = [
-        fetch(`http://localhost:3001/api/dashboard/analytics?${scope}`),
+        fetch(`${process.env.REACT_APP_API_URL || ""}/api/dashboard/analytics?${scope}`),
       ];
       if (isAdmin) {
-        fetches.push(fetch(`http://localhost:3001/api/dashboard/audit-log?limit=500&user_role=Admin`));
+        fetches.push(fetch(`${process.env.REACT_APP_API_URL || ""}/api/dashboard/audit-log?limit=500&user_role=Admin`));
       }
       const [anaRes, auditRes] = await Promise.all(fetches);
       if (anaRes.ok) {

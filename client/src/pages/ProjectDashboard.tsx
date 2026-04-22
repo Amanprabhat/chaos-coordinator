@@ -270,10 +270,10 @@ const ProjectDashboard: React.FC = () => {
     if (!id) return;
     setLoading(true); setError(null);
     Promise.all([
-      fetch(`http://localhost:3001/api/projects/${id}`).then(r => { if (!r.ok) throw new Error('Project not found'); return r.json(); }),
-      fetch(`http://localhost:3001/api/projects/${id}/milestones`).then(r => r.ok ? r.json() : []).catch(() => []),
-      fetch(`http://localhost:3001/api/projects/${id}/risks`).then(r => r.ok ? r.json() : []).catch(() => []),
-      fetch(`http://localhost:3001/api/projects/${id}/start-date-logs`).then(r => r.ok ? r.json() : []).catch(() => []),
+      fetch(`${process.env.REACT_APP_API_URL || ""}/api/projects/${id}`).then(r => { if (!r.ok) throw new Error('Project not found'); return r.json(); }),
+      fetch(`${process.env.REACT_APP_API_URL || ""}/api/projects/${id}/milestones`).then(r => r.ok ? r.json() : []).catch(() => []),
+      fetch(`${process.env.REACT_APP_API_URL || ""}/api/projects/${id}/risks`).then(r => r.ok ? r.json() : []).catch(() => []),
+      fetch(`${process.env.REACT_APP_API_URL || ""}/api/projects/${id}/start-date-logs`).then(r => r.ok ? r.json() : []).catch(() => []),
     ]).then(([proj, mils, rsks, logs]) => {
       setProject(proj);
       setMilestones(Array.isArray(mils) ? mils : []);
@@ -422,7 +422,7 @@ const ProjectDashboard: React.FC = () => {
     setSavingPlan(true);
     try {
       // Save WBS plan
-      const res = await fetch(`http://localhost:3001/api/projects/${id}/plan`, {
+      const res = await fetch(`${process.env.REACT_APP_API_URL || ""}/api/projects/${id}/plan`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -439,7 +439,7 @@ const ProjectDashboard: React.FC = () => {
         const maxDayEnd = Math.max(...localTasks.map(t => t.day_end));
         const newGoLive = addWorkingDays(project.project_start_date, maxDayEnd - 1);
         try {
-          await fetch(`http://localhost:3001/api/projects/${id}`, {
+          await fetch(`${process.env.REACT_APP_API_URL || ""}/api/projects/${id}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ go_live_deadline: newGoLive }),
@@ -497,7 +497,7 @@ const ProjectDashboard: React.FC = () => {
     }
 
     try {
-      await fetch(`http://localhost:3001/api/projects/${id}/plan`, {
+      await fetch(`${process.env.REACT_APP_API_URL || ""}/api/projects/${id}/plan`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -514,7 +514,7 @@ const ProjectDashboard: React.FC = () => {
         const maxDayEnd = activeTasks.length > 0 ? Math.max(...activeTasks.map(t => t.day_end)) : 0;
         if (maxDayEnd > 0) {
           const newGoLive = addWorkingDays(project.project_start_date, maxDayEnd - 1);
-          await fetch(`http://localhost:3001/api/projects/${id}`, {
+          await fetch(`${process.env.REACT_APP_API_URL || ""}/api/projects/${id}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ go_live_deadline: newGoLive }),
@@ -564,7 +564,7 @@ const ProjectDashboard: React.FC = () => {
     }
     setSavingStartDate(true);
     try {
-      const res = await fetch(`http://localhost:3001/api/projects/${id}/start-date`, {
+      const res = await fetch(`${process.env.REACT_APP_API_URL || ""}/api/projects/${id}/start-date`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -582,8 +582,8 @@ const ProjectDashboard: React.FC = () => {
       }
       // Refetch the full joined project + logs in parallel
       const [projRes, logsRes] = await Promise.all([
-        fetch(`http://localhost:3001/api/projects/${id}`),
-        fetch(`http://localhost:3001/api/projects/${id}/start-date-logs`),
+        fetch(`${process.env.REACT_APP_API_URL || ""}/api/projects/${id}`),
+        fetch(`${process.env.REACT_APP_API_URL || ""}/api/projects/${id}/start-date-logs`),
       ]);
       if (projRes.ok) setProject(await projRes.json());
       if (logsRes.ok) setStartDateLogs(await logsRes.json());
@@ -602,7 +602,7 @@ const ProjectDashboard: React.FC = () => {
       ? JSON.stringify({ sprint: newMilestone.sprint, dependency: newMilestone.dependency })
       : undefined;
     try {
-      const res = await fetch('http://localhost:3001/api/milestones', {
+      const res = await fetch(`${process.env.REACT_APP_API_URL || ""}/api/milestones`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -625,7 +625,7 @@ const ProjectDashboard: React.FC = () => {
 
   const deleteMilestone = async (milestoneId: number) => {
     try {
-      await fetch(`http://localhost:3001/api/milestones/${milestoneId}`, { method: 'DELETE' });
+      await fetch(`${process.env.REACT_APP_API_URL || ""}/api/milestones/${milestoneId}`, { method: 'DELETE' });
       setMilestones(prev => prev.filter(m => m.id !== milestoneId));
     } catch { /* silent */ }
   };
@@ -633,7 +633,7 @@ const ProjectDashboard: React.FC = () => {
   const toggleMilestoneStatus = async (m: Milestone) => {
     const next = m.status === 'completed' ? 'pending' : m.status === 'pending' ? 'in_progress' : 'completed';
     try {
-      await fetch(`http://localhost:3001/api/milestones/${m.id}`, {
+      await fetch(`${process.env.REACT_APP_API_URL || ""}/api/milestones/${m.id}`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: next }),
       });
@@ -646,7 +646,7 @@ const ProjectDashboard: React.FC = () => {
     if (!riskForm.title.trim() || !id) return;
     setSavingRisk(true);
     try {
-      const res = await fetch(`http://localhost:3001/api/projects/${id}/risks`, {
+      const res = await fetch(`${process.env.REACT_APP_API_URL || ""}/api/projects/${id}/risks`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(riskForm),
@@ -662,14 +662,14 @@ const ProjectDashboard: React.FC = () => {
 
   const deleteRisk = async (riskId: number) => {
     try {
-      await fetch(`http://localhost:3001/api/projects/${id}/risks/${riskId}`, { method: 'DELETE' });
+      await fetch(`${process.env.REACT_APP_API_URL || ""}/api/projects/${id}/risks/${riskId}`, { method: 'DELETE' });
       setRisks(prev => prev.filter(r => r.id !== riskId));
     } catch { /* silent */ }
   };
 
   const updateRiskStatus = async (risk: Risk, newStatus: string) => {
     try {
-      await fetch(`http://localhost:3001/api/projects/${id}/risks/${risk.id}`, {
+      await fetch(`${process.env.REACT_APP_API_URL || ""}/api/projects/${id}/risks/${risk.id}`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: newStatus }),
       });
@@ -958,7 +958,7 @@ const ProjectDashboard: React.FC = () => {
                           <p className="text-sm font-medium text-gray-800 truncate">{project.sow_file_name || 'SOW Document'}</p>
                           {project.sow_file_size && <p className="text-xs text-gray-400">{(project.sow_file_size / 1024).toFixed(1)} KB</p>}
                         </div>
-                        <a href={`http://localhost:3001/api/projects/${id}/download-sow`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white text-xs font-medium rounded-lg hover:bg-indigo-700 transition-colors flex-shrink-0">
+                        <a href={`${process.env.REACT_APP_API_URL || ""}/api/projects/${id}/download-sow`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white text-xs font-medium rounded-lg hover:bg-indigo-700 transition-colors flex-shrink-0">
                           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
                           Download
                         </a>

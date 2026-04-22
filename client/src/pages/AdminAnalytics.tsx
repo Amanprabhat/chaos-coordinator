@@ -80,8 +80,8 @@ const AdminAnalytics: React.FC = () => {
     setLoading(true);
     try {
       const [anaRes, auditRes] = await Promise.all([
-        fetch(`http://localhost:3001/api/dashboard/analytics?period=${period}`),
-        fetch(`http://localhost:3001/api/dashboard/audit-log?limit=300`),
+        fetch(`${process.env.REACT_APP_API_URL || ""}/api/dashboard/analytics?period=${period}`),
+        fetch(`${process.env.REACT_APP_API_URL || ""}/api/dashboard/audit-log?limit=300`),
       ]);
       if (anaRes.ok) setAnalytics(await anaRes.json());
       if (auditRes.ok) setAuditLogs(await auditRes.json());

@@ -292,7 +292,7 @@ const ProjectDetail: React.FC<{ project: Project; milestones: Milestone[]; onBac
   const fetchRequests = useCallback(async () => {
     setLoadingReqs(true);
     try {
-      const r = await fetch(`http://localhost:3001/api/projects/${project.id}/client-requests`);
+      const r = await fetch(`${process.env.REACT_APP_API_URL || ""}/api/projects/${project.id}/client-requests`);
       if (r.ok) setRequests(await r.json());
     } finally { setLoadingReqs(false); }
   }, [project.id]);
@@ -323,7 +323,7 @@ const ProjectDetail: React.FC<{ project: Project; milestones: Milestone[]; onBac
         if (reqForm.impact_areas.trim()) fullDescription += `\n\n**Impacted Areas:**\n${reqForm.impact_areas.trim()}`;
       }
 
-      await fetch(`http://localhost:3001/api/projects/${project.id}/client-requests`, {
+      await fetch(`${process.env.REACT_APP_API_URL || ""}/api/projects/${project.id}/client-requests`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -747,7 +747,7 @@ const ProjectDetail: React.FC<{ project: Project; milestones: Milestone[]; onBac
                     <p className="text-xs font-semibold text-indigo-800 truncate">{project.sow_file_name || 'Statement of Work'}</p>
                     <p className="text-[10px] text-indigo-500">Signed SOW document</p>
                   </div>
-                  <a href={`http://localhost:3001/api/projects/${project.id}/download-sow`} target="_blank" rel="noopener noreferrer"
+                  <a href={`${process.env.REACT_APP_API_URL || ""}/api/projects/${project.id}/download-sow`} target="_blank" rel="noopener noreferrer"
                     className="flex-shrink-0 px-3 py-1.5 bg-indigo-600 text-white text-xs font-semibold rounded-lg hover:bg-indigo-700 transition-colors">
                     Download
                   </a>
@@ -1674,7 +1674,7 @@ const ClientPortal: React.FC = () => {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch('http://localhost:3001/api/projects');
+      const res = await fetch(`${process.env.REACT_APP_API_URL || ""}/api/projects`);
       const all: Project[] = res.ok ? await res.json() : [];
       const clientEmail = user?.email?.toLowerCase() || '';
       const active = all.filter(p =>
@@ -1685,7 +1685,7 @@ const ClientPortal: React.FC = () => {
 
       const entries = await Promise.all(
         active.map(p =>
-          fetch(`http://localhost:3001/api/projects/${p.id}/milestones`)
+          fetch(`${process.env.REACT_APP_API_URL || ""}/api/projects/${p.id}/milestones`)
             .then(r => r.ok ? r.json() : [])
             .then((mils: Milestone[]) => [p.id, mils] as [number, Milestone[]])
             .catch(() => [p.id, []] as [number, Milestone[]])

@@ -128,7 +128,7 @@ const ProjectPlanPanel: React.FC<PlanPanelProps> = ({ project, onStartDateSet })
     if (!startDate) return;
     setSaving(true);
     try {
-      const res = await fetch(`http://localhost:3001/api/projects/${project.id}/set-start-date`, {
+      const res = await fetch(`${process.env.REACT_APP_API_URL || ""}/api/projects/${project.id}/set-start-date`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ start_date: startDate }),
@@ -313,7 +313,7 @@ const ProjectPlanPanelWithGenerate: React.FC<{
   const handleGenerate = async () => {
     setGenerating(true);
     try {
-      const res = await fetch(`http://localhost:3001/api/projects/${project.id}/generate-plan`, { method: 'POST' });
+      const res = await fetch(`${process.env.REACT_APP_API_URL || ""}/api/projects/${project.id}/generate-plan`, { method: 'POST' });
       if (!res.ok) throw new Error('Failed');
       const data = await res.json();
       const updated = { ...localProject, project_plan: JSON.stringify(data.plan) };
@@ -381,7 +381,7 @@ const ProjectDrawer: React.FC<DrawerProps> = ({ project, userRole, onClose, onSt
       const fd = new FormData();
       fd.append('sow_file', file);
       const noSow = !localProject.sow_file_path;
-      const url = `http://localhost:3001/api/projects/${project.id}/upload-sow${noSow ? '?resubmit=true' : ''}`;
+      const url = `${process.env.REACT_APP_API_URL || ""}/api/projects/${project.id}/upload-sow${noSow ? '?resubmit=true' : ''}`;
       const res = await fetch(url, { method: 'POST', body: fd });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Upload failed');
@@ -561,7 +561,7 @@ const ProjectDrawer: React.FC<DrawerProps> = ({ project, userRole, onClose, onSt
                 {localProject.sow_file_path ? (
                   <div className="space-y-2">
                     <a
-                      href={`http://localhost:3001/api/projects/${project.id}/download-sow`}
+                      href={`${process.env.REACT_APP_API_URL || ""}/api/projects/${project.id}/download-sow`}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="flex items-center gap-3 px-4 py-3 bg-indigo-50 border border-indigo-200 rounded-xl hover:bg-indigo-100 transition-colors"
@@ -1279,9 +1279,9 @@ const CSMDashboard: React.FC = () => {
   const fetchAll = async () => {
     try {
       const [projRes, taskRes, msRes] = await Promise.all([
-        fetch('http://localhost:3001/api/projects'),
-        fetch(`http://localhost:3001/api/tasks?owner_id=${user?.id}`),
-        fetch('http://localhost:3001/api/milestones'),
+        fetch(`${process.env.REACT_APP_API_URL || ""}/api/projects`),
+        fetch(`${process.env.REACT_APP_API_URL || ""}/api/tasks?owner_id=${user?.id}`),
+        fetch(`${process.env.REACT_APP_API_URL || ""}/api/milestones`),
       ]);
       const [projData, taskData, msData] = await Promise.all([
         projRes.json(), taskRes.json(), msRes.json(),
@@ -1409,7 +1409,7 @@ const CSMDashboard: React.FC = () => {
     const date = quickDates[projectId];
     if (!date) return;
     try {
-      const res = await fetch(`http://localhost:3001/api/projects/${projectId}/set-start-date`, {
+      const res = await fetch(`${process.env.REACT_APP_API_URL || ""}/api/projects/${projectId}/set-start-date`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ start_date: date }),
@@ -1429,7 +1429,7 @@ const CSMDashboard: React.FC = () => {
   const updateTaskStatus = async (taskId: number, currentStatus: string) => {
     const next = TASK_STATUS_CYCLE[currentStatus] ?? 'in_progress';
     try {
-      await fetch(`http://localhost:3001/api/tasks/${taskId}`, {
+      await fetch(`${process.env.REACT_APP_API_URL || ""}/api/tasks/${taskId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
