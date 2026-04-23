@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { useProjectStore } from '../store/projectStore';
@@ -407,6 +407,57 @@ const SalesDashboard: React.FC = () => {
   const handleTourPrev = () => { if (tourStep > 0) setTourStep(s => s - 1); };
   const handleSkipTour = () => setTourActive(false);
 
+  // ── CR Approvals state (Sales) ────────────────────────────────────────────
+  const [crSalesList, setCrSalesList]         = useState<any[]>([]);
+  const [crSalesModal, setCrSalesModal]       = useState<any | null>(null);
+  const [salesForm, setSalesForm]             = useState({ sales_notes: '', billing_type: '' });
+  const [salesSubmitting, setSalesSubmitting] = useState(false);
+
+  const fetchCRsForSales = useCallback(async () => {
+    try {
+      const res = await fetch(`${process.env.REACT_APP_API_URL || ""}/api/client-requests/all`);
+      if (!res.ok) return;
+      const all: any[] = await res.json();
+      setCrSalesList(all.filter(r => r.approval_stage === 'sales_review'));
+    } catch { /* silent */ }
+  }, []);
+
+  useEffect(() => { fetchCRsForSales(); }, [fetchCRsForSales]);
+
+  const handleSalesApprove = async () => {
+    if (!crSalesModal) return;
+    const isCRType = ['change_request','new_requirement'].includes(crSalesModal.request_type);
+    if (isCRType && !salesForm.billing_type) { alert('Billing type is required for this request.'); return; }
+    setSalesSubmitting(true);
+    try {
+      await fetch(`${process.env.REACT_APP_API_URL || ""}/api/projects/${crSalesModal.project_id}/client-requests/${crSalesModal.id}/sales-review`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'approve',
+          sales_notes: salesForm.sales_notes,
+          billing_type: salesForm.billing_type || undefined,
+          sales_user_id: user?.id,
+        }),
+      });
+      setCrSalesModal(null);
+      setSalesForm({ sales_notes: '', billing_type: '' });
+      fetchCRsForSales();
+    } finally { setSalesSubmitting(false); }
+  };
+
+  const handleSalesReject = async (req: any) => {
+    setSalesSubmitting(true);
+    try {
+      await fetch(`${process.env.REACT_APP_API_URL || ""}/api/projects/${req.project_id}/client-requests/${req.id}/sales-review`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'reject', sales_user_id: user?.id }),
+      });
+      fetchCRsForSales();
+    } finally { setSalesSubmitting(false); }
+  };
+
   // Stats — only relevant ones for Sales
   const stats = {
     total:            (projects as Project[]).length,
@@ -673,6 +724,85 @@ const SalesDashboard: React.FC = () => {
               </div>
             </motion.div>
 
+            {/* ── CR Approvals section ───────────────────────────────── */}
+            {crSalesList.length > 0 && (
+              <motion.div
+                initial={{ opacity: 0, y: 16 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.4, delay: 0.35 }}
+                className="mt-6 bg-white rounded-2xl border border-amber-200 shadow-sm"
+              >
+                <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+                  <div>
+                    <h2 className="text-base font-bold text-gray-900">CR Approvals — Sales Review</h2>
+                    <p className="text-xs text-gray-400 mt-0.5">Change requests awaiting your billing decision</p>
+                  </div>
+                  <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-amber-100 text-amber-700">{crSalesList.length} pending</span>
+                </div>
+                <div className="divide-y divide-gray-100">
+                  {crSalesList.map(req => (
+                    <div key={req.id} className="px-6 py-4 space-y-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-xs font-bold uppercase tracking-wide px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">
+                              {req.request_type?.replace(/_/g,' ')}
+                            </span>
+                            <span className="text-xs text-gray-400">#{req.id}</span>
+                            {req.project_name && <span className="text-xs text-gray-500">{req.project_name}</span>}
+                          </div>
+                          <p className="text-sm font-semibold text-gray-800 mt-1.5">{req.title}</p>
+                          {req.description && (
+                            <p className="text-xs text-gray-500 mt-1 line-clamp-2">{req.description}</p>
+                          )}
+                        </div>
+                        <span className="text-[10px] text-gray-400 whitespace-nowrap mt-1">
+                          {req.created_at ? new Date(req.created_at).toLocaleDateString() : ''}
+                        </span>
+                      </div>
+
+                      {/* PM assessment */}
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        {req.effort_man_days && (
+                          <div className="bg-blue-50 border border-blue-100 rounded-xl px-3 py-2">
+                            <p className="text-[10px] font-bold text-blue-400 uppercase tracking-wide">Effort (Man-days)</p>
+                            <p className="text-sm font-bold text-blue-800 mt-0.5">{req.effort_man_days}</p>
+                          </div>
+                        )}
+                        {req.effort_hours && (
+                          <div className="bg-blue-50 border border-blue-100 rounded-xl px-3 py-2">
+                            <p className="text-[10px] font-bold text-blue-400 uppercase tracking-wide">Effort (Hours)</p>
+                            <p className="text-sm font-bold text-blue-800 mt-0.5">{req.effort_hours}</p>
+                          </div>
+                        )}
+                        {req.pm_notes && (
+                          <div className="bg-indigo-50 border border-indigo-100 rounded-xl px-3 py-2 sm:col-span-2">
+                            <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-wide">PM Notes</p>
+                            <p className="text-xs text-indigo-800 mt-0.5">{req.pm_notes}</p>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex gap-2 pt-1">
+                        <button
+                          onClick={() => { setCrSalesModal(req); setSalesForm({ sales_notes: '', billing_type: '' }); }}
+                          disabled={salesSubmitting}
+                          className="px-4 py-1.5 bg-indigo-600 text-white text-xs font-semibold rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition-colors">
+                          Review &amp; Approve
+                        </button>
+                        <button
+                          onClick={() => { if (window.confirm('Reject this request?')) handleSalesReject(req); }}
+                          disabled={salesSubmitting}
+                          className="px-4 py-1.5 bg-white border border-red-200 text-red-600 text-xs font-semibold rounded-lg hover:bg-red-50 disabled:opacity-50 transition-colors">
+                          Reject
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </motion.div>
+            )}
+
             {/* Loading skeleton */}
             {isLoading && (
               <div className="mt-6 flex items-center justify-center py-8 text-gray-400 text-sm">
@@ -783,6 +913,98 @@ const SalesDashboard: React.FC = () => {
         </aside>
 
       </div>
+
+      {/* ── SALES APPROVE MODAL ─────────────────────────────────────────── */}
+      {crSalesModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-bold text-gray-800">Sales Review</h3>
+              <button onClick={() => setCrSalesModal(null)} className="text-gray-400 hover:text-gray-600 text-lg leading-none">&times;</button>
+            </div>
+
+            <div className="bg-gray-50 rounded-xl p-3 space-y-1">
+              <p className="text-xs font-semibold text-gray-700">{crSalesModal.title}</p>
+              <p className="text-[10px] text-gray-400">{crSalesModal.request_type?.replace(/_/g,' ')} · #{crSalesModal.id}{crSalesModal.project_name ? ` · ${crSalesModal.project_name}` : ''}</p>
+            </div>
+
+            {/* PM effort summary */}
+            {(crSalesModal.effort_man_days || crSalesModal.pm_notes) && (
+              <div className="grid grid-cols-2 gap-3">
+                {crSalesModal.effort_man_days && (
+                  <div className="bg-blue-50 border border-blue-100 rounded-xl px-3 py-2">
+                    <p className="text-[10px] font-bold text-blue-400 uppercase tracking-wide">Effort (Man-days)</p>
+                    <p className="text-sm font-bold text-blue-800 mt-0.5">{crSalesModal.effort_man_days}</p>
+                  </div>
+                )}
+                {crSalesModal.pm_notes && (
+                  <div className="bg-indigo-50 border border-indigo-100 rounded-xl px-3 py-2 col-span-2">
+                    <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-wide">PM Notes</p>
+                    <p className="text-xs text-indigo-800 mt-0.5">{crSalesModal.pm_notes}</p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="space-y-3">
+              {/* Billing type — required for CR types */}
+              {['change_request','new_requirement'].includes(crSalesModal.request_type) && (
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-2">
+                    Billing Type <span className="text-red-500">*</span>
+                  </label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {[
+                      { value: 'paid_cr',      label: 'Paid CR',      desc: 'Client pays' },
+                      { value: 'engineering',  label: 'Engineering',  desc: 'Internal cost' },
+                      { value: 'sales',        label: 'Sales',        desc: 'Sales absorbs' },
+                    ].map(opt => (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => setSalesForm(f => ({ ...f, billing_type: opt.value }))}
+                        className={`p-2.5 rounded-xl border-2 text-left transition-colors ${
+                          salesForm.billing_type === opt.value
+                            ? 'border-indigo-500 bg-indigo-50'
+                            : 'border-gray-200 bg-white hover:border-gray-300'
+                        }`}
+                      >
+                        <p className={`text-xs font-bold ${salesForm.billing_type === opt.value ? 'text-indigo-700' : 'text-gray-700'}`}>{opt.label}</p>
+                        <p className="text-[10px] text-gray-400 mt-0.5">{opt.desc}</p>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">Sales Notes</label>
+                <textarea
+                  rows={3}
+                  value={salesForm.sales_notes}
+                  onChange={e => setSalesForm(f => ({ ...f, sales_notes: e.target.value }))}
+                  placeholder="Commercial context, client agreement, conditions…"
+                  className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400 resize-none" />
+              </div>
+            </div>
+
+            <div className="flex gap-3 pt-1">
+              <button
+                onClick={handleSalesApprove}
+                disabled={salesSubmitting}
+                className="flex-1 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-xl hover:bg-indigo-700 disabled:opacity-50 transition-colors">
+                {salesSubmitting ? 'Submitting…' : 'Approve — Forward to Admin'}
+              </button>
+              <button
+                onClick={() => setCrSalesModal(null)}
+                disabled={salesSubmitting}
+                className="px-5 py-2 bg-gray-100 text-gray-700 text-sm font-semibold rounded-xl hover:bg-gray-200 disabled:opacity-50 transition-colors">
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 };

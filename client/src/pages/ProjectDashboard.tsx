@@ -206,10 +206,16 @@ const ProjectDashboard: React.FC = () => {
   const [loading, setLoading]       = useState(true);
   const [error, setError]           = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [activeTab, setActiveTab]   = useState<'overview' | 'wbs' | 'gantt' | 'discussion'>(() => {
+  const [activeTab, setActiveTab]   = useState<'overview' | 'wbs' | 'gantt' | 'discussion' | 'cr_review'>(() => {
     const t = new URLSearchParams(location.search).get('tab');
-    return (t === 'wbs' || t === 'gantt' || t === 'discussion') ? t : 'overview';
+    return (t === 'wbs' || t === 'gantt' || t === 'discussion' || t === 'cr_review') ? t : 'overview';
   });
+
+  // ── CR Review state (PM) ────────────────────────────────────────────────────
+  const [crList, setCrList]               = useState<any[]>([]);
+  const [crPmModal, setCrPmModal]         = useState<any | null>(null);
+  const [pmForm, setPmForm]               = useState({ pm_notes: '', effort_man_days: '', effort_hours: '' });
+  const [pmSubmitting, setPmSubmitting]   = useState(false);
 
   // ── WBS edit state ─────────────────────────────────────────────────────────
   const [editMode, setEditMode]       = useState(false);
@@ -288,6 +294,57 @@ const ProjectDashboard: React.FC = () => {
   }, [id, user]);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
+
+  // Fetch CRs at pm_review stage for this project
+  const fetchCRsForPM = useCallback(async () => {
+    if (!id) return;
+    try {
+      const res = await fetch(`${process.env.REACT_APP_API_URL || ""}/api/projects/${id}/client-requests`);
+      if (!res.ok) return;
+      const all: any[] = await res.json();
+      setCrList(all.filter(r => r.approval_stage === 'pm_review'));
+    } catch { /* silent */ }
+  }, [id]);
+
+  useEffect(() => {
+    if (activeTab === 'cr_review') fetchCRsForPM();
+  }, [activeTab, fetchCRsForPM]);
+
+  const handlePmApprove = async () => {
+    if (!crPmModal || !id) return;
+    const isCRType = ['change_request','new_requirement'].includes(crPmModal.request_type);
+    if (isCRType && !pmForm.effort_man_days) { alert('Effort in man-days is required for this request type.'); return; }
+    setPmSubmitting(true);
+    try {
+      await fetch(`${process.env.REACT_APP_API_URL || ""}/api/projects/${id}/client-requests/${crPmModal.id}/pm-review`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'approve',
+          pm_notes: pmForm.pm_notes,
+          effort_man_days: pmForm.effort_man_days ? parseFloat(pmForm.effort_man_days) : undefined,
+          effort_hours: pmForm.effort_hours ? parseFloat(pmForm.effort_hours) : undefined,
+          pm_user_id: user?.id,
+        }),
+      });
+      setCrPmModal(null);
+      setPmForm({ pm_notes: '', effort_man_days: '', effort_hours: '' });
+      fetchCRsForPM();
+    } finally { setPmSubmitting(false); }
+  };
+
+  const handlePmReject = async (req: any) => {
+    if (!id) return;
+    setPmSubmitting(true);
+    try {
+      await fetch(`${process.env.REACT_APP_API_URL || ""}/api/projects/${id}/client-requests/${req.id}/pm-review`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'reject', pm_user_id: user?.id }),
+      });
+      fetchCRsForPM();
+    } finally { setPmSubmitting(false); }
+  };
 
   // ── Parsed / derived ───────────────────────────────────────────────────────
   const tasks: WBSTask[] = React.useMemo(() => {
@@ -878,6 +935,15 @@ const ProjectDashboard: React.FC = () => {
                     {tab.label}
                   </button>
                 ))}
+                {(user?.role === 'PM' || user?.role === 'Admin') && (
+                  <button onClick={() => setActiveTab('cr_review')}
+                    className={`px-5 py-3.5 text-sm font-medium border-b-2 transition-colors ${activeTab==='cr_review' ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+                    CR Review
+                    {crList.length > 0 && activeTab !== 'cr_review' && (
+                      <span className="ml-1.5 inline-flex items-center justify-center w-4 h-4 text-[10px] font-bold rounded-full bg-amber-100 text-amber-700">{crList.length}</span>
+                    )}
+                  </button>
+                )}
               </div>
             </div>
 
@@ -1359,6 +1425,8 @@ const ProjectDashboard: React.FC = () => {
                           </div>
                         );
                       })()}
+                      </div>{/* /minWidth */}
+                      </div>{/* /overflowX */}
                     </>
                   )}
                 </div>
@@ -1577,8 +1645,154 @@ const ProjectDashboard: React.FC = () => {
                   <DiscussionForum projectId={project.id} projectName={project.name} />
                 </div>
               )}
+
+              {/* ── CR REVIEW TAB (PM) ─────────────────────────────────────── */}
+              {activeTab === 'cr_review' && (
+                <div className="max-w-4xl space-y-5">
+                  <div className="flex items-center justify-between">
+                    <h2 className="text-base font-bold text-gray-800">Change Requests — PM Review Queue</h2>
+                    <button onClick={fetchCRsForPM} className="text-xs text-indigo-500 hover:text-indigo-700 font-medium">Refresh</button>
+                  </div>
+
+                  {crList.length === 0 ? (
+                    <div className="bg-white border border-gray-200 rounded-2xl p-10 text-center">
+                      <p className="text-sm font-semibold text-gray-600">No requests pending PM review</p>
+                      <p className="text-xs text-gray-400 mt-1">Requests will appear here once CSM has completed their review.</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {crList.map(req => {
+                        const isCRType = ['change_request','new_requirement'].includes(req.request_type);
+                        return (
+                          <div key={req.id} className="bg-white border border-gray-200 rounded-2xl p-5 space-y-3">
+                            {/* Header */}
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="text-xs font-bold uppercase tracking-wide px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">
+                                    {req.request_type?.replace(/_/g,' ')}
+                                  </span>
+                                  <span className="text-xs text-gray-400">#{req.id}</span>
+                                  <span className="text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 font-medium">PM Review</span>
+                                </div>
+                                <p className="text-sm font-semibold text-gray-800 mt-1.5">{req.title}</p>
+                                {req.description && (
+                                  <p className="text-xs text-gray-500 mt-1 line-clamp-2">{req.description}</p>
+                                )}
+                              </div>
+                              <span className="text-[10px] text-gray-400 whitespace-nowrap mt-1">
+                                {req.created_at ? new Date(req.created_at).toLocaleDateString() : ''}
+                              </span>
+                            </div>
+
+                            {/* CSM notes from previous stage */}
+                            {req.csm_notes && (
+                              <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-3">
+                                <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-wide mb-1">CSM Notes</p>
+                                <p className="text-xs text-indigo-800">{req.csm_notes}</p>
+                              </div>
+                            )}
+                            {req.mom_attendees && (
+                              <div className="bg-gray-50 border border-gray-100 rounded-xl p-3">
+                                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-1">MOM Attendees</p>
+                                <p className="text-xs text-gray-600">
+                                  {(() => { try { return JSON.parse(req.mom_attendees).join(', '); } catch { return req.mom_attendees; } })()}
+                                </p>
+                              </div>
+                            )}
+
+                            {/* Actions */}
+                            <div className="flex gap-2 pt-1">
+                              <button
+                                onClick={() => { setCrPmModal(req); setPmForm({ pm_notes: '', effort_man_days: '', effort_hours: '' }); }}
+                                disabled={pmSubmitting}
+                                className="px-4 py-1.5 bg-indigo-600 text-white text-xs font-semibold rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition-colors">
+                                Review &amp; Approve
+                              </button>
+                              <button
+                                onClick={() => { if (window.confirm('Reject this request?')) handlePmReject(req); }}
+                                disabled={pmSubmitting}
+                                className="px-4 py-1.5 bg-white border border-red-200 text-red-600 text-xs font-semibold rounded-lg hover:bg-red-50 disabled:opacity-50 transition-colors">
+                                Reject
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
+
+          {/* ── PM APPROVE MODAL ───────────────────────────────────────────── */}
+          {crPmModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+              <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6 space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-base font-bold text-gray-800">PM Review</h3>
+                  <button onClick={() => setCrPmModal(null)} className="text-gray-400 hover:text-gray-600 text-lg leading-none">&times;</button>
+                </div>
+
+                <div className="bg-gray-50 rounded-xl p-3 space-y-1">
+                  <p className="text-xs font-semibold text-gray-700">{crPmModal.title}</p>
+                  <p className="text-[10px] text-gray-400">{crPmModal.request_type?.replace(/_/g,' ')} · #{crPmModal.id}</p>
+                </div>
+
+                <div className="space-y-3">
+                  {/* Effort fields — required for CR types */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-700 mb-1">
+                        Effort (Man-days){['change_request','new_requirement'].includes(crPmModal.request_type) && <span className="text-red-500 ml-0.5">*</span>}
+                      </label>
+                      <input
+                        type="number" min="0" step="0.5"
+                        value={pmForm.effort_man_days}
+                        onChange={e => setPmForm(f => ({ ...f, effort_man_days: e.target.value }))}
+                        placeholder="e.g. 5"
+                        className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-700 mb-1">Effort (Hours)</label>
+                      <input
+                        type="number" min="0" step="0.5"
+                        value={pmForm.effort_hours}
+                        onChange={e => setPmForm(f => ({ ...f, effort_hours: e.target.value }))}
+                        placeholder="e.g. 40"
+                        className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400" />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">PM Notes</label>
+                    <textarea
+                      rows={4}
+                      value={pmForm.pm_notes}
+                      onChange={e => setPmForm(f => ({ ...f, pm_notes: e.target.value }))}
+                      placeholder="Add your assessment, clarifications, or conditions…"
+                      className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400 resize-none" />
+                  </div>
+                </div>
+
+                <div className="flex gap-3 pt-1">
+                  <button
+                    onClick={handlePmApprove}
+                    disabled={pmSubmitting}
+                    className="flex-1 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-xl hover:bg-indigo-700 disabled:opacity-50 transition-colors">
+                    {pmSubmitting ? 'Submitting…' : 'Approve — Forward to Sales'}
+                  </button>
+                  <button
+                    onClick={() => setCrPmModal(null)}
+                    disabled={pmSubmitting}
+                    className="px-5 py-2 bg-gray-100 text-gray-700 text-sm font-semibold rounded-xl hover:bg-gray-200 disabled:opacity-50 transition-colors">
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* ── RIGHT PANEL ───────────────────────────────────────────────── */}
           <aside className="hidden lg:block w-72 flex-shrink-0 border-l border-gray-200 bg-white overflow-auto">

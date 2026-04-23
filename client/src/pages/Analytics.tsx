@@ -318,7 +318,7 @@ const Analytics: React.FC = () => {
 
   // ── State ──────────────────────────────────────────────────────────────────
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [tab, setTab]   = useState<'overview' | 'projects' | 'tasks' | 'activity' | 'audit'>('overview');
+  const [tab, setTab]   = useState<'overview' | 'projects' | 'tasks' | 'activity' | 'audit' | 'cr_pipeline'>('overview');
   const [data, setData] = useState<AnalyticsData | null>(null);
   const [audit, setAudit] = useState<AuditLog[]>([]);
   const [loading, setLoading] = useState(true);
@@ -342,6 +342,23 @@ const Analytics: React.FC = () => {
   const [auditAction, setAuditAction] = useState('');
   const [auditFrom, setAuditFrom]     = useState('');
   const [auditTo, setAuditTo]         = useState('');
+
+  // ── CR Pipeline analytics ──────────────────────────────────────────────────
+  const [crStats, setCrStats] = useState<any | null>(null);
+  const [crStatsLoading, setCrStatsLoading] = useState(false);
+
+  const fetchCrStats = useCallback(async () => {
+    setCrStatsLoading(true);
+    try {
+      const res = await fetch(`${process.env.REACT_APP_API_URL || ""}/api/cr-analytics`);
+      if (res.ok) setCrStats(await res.json());
+    } catch { /* silent */ }
+    finally { setCrStatsLoading(false); }
+  }, []);
+
+  useEffect(() => {
+    if (tab === 'cr_pipeline') fetchCrStats();
+  }, [tab, fetchCrStats]);
 
   const lastFetch = useRef(0);
 
@@ -479,10 +496,11 @@ const Analytics: React.FC = () => {
   ];
 
   const TABS = [
-    { key: 'overview',  label: 'Overview' },
-    { key: 'projects',  label: 'Projects' },
-    { key: 'tasks',     label: 'Tasks & WBS' },
-    { key: 'activity',  label: 'Activity' },
+    { key: 'overview',     label: 'Overview' },
+    { key: 'projects',     label: 'Projects' },
+    { key: 'tasks',        label: 'Tasks & WBS' },
+    { key: 'activity',     label: 'Activity' },
+    { key: 'cr_pipeline',  label: 'CR Pipeline' },
     ...(isAdmin ? [{ key: 'audit' as const, label: 'Audit Trail' }] : []),
   ] as const;
 
@@ -1539,6 +1557,136 @@ const Analytics: React.FC = () => {
                       </div>
                     )}
                   </SectionCard>
+                </div>
+              )}
+
+              {/* ══════════ CR PIPELINE ══════════ */}
+              {tab === 'cr_pipeline' && (
+                <div className="space-y-6">
+                  {crStatsLoading ? (
+                    <div className="flex items-center justify-center py-20 text-gray-400 text-sm gap-3">
+                      <div className="w-6 h-6 border-4 border-indigo-100 border-t-indigo-500 rounded-full animate-spin" />
+                      Loading CR analytics…
+                    </div>
+                  ) : !crStats ? (
+                    <div className="bg-white rounded-2xl border border-dashed border-gray-200 p-16 text-center">
+                      <p className="text-sm text-gray-400">No CR data available</p>
+                      <button onClick={fetchCrStats} className="mt-3 text-xs font-semibold text-indigo-600 hover:text-indigo-800">Retry</button>
+                    </div>
+                  ) : (
+                    <>
+                      {/* Top KPIs */}
+                      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                        {[
+                          { label: 'Total CRs',          value: crStats.total ?? 0,                     color: 'text-gray-900',   sub: 'all time' },
+                          { label: 'Pending in Pipeline', value: (crStats.by_stage?.csm_review ?? 0) + (crStats.by_stage?.pm_review ?? 0) + (crStats.by_stage?.sales_review ?? 0) + (crStats.by_stage?.admin_review ?? 0), color: 'text-amber-600', sub: 'across all stages' },
+                          { label: 'Approved',            value: crStats.by_stage?.approved ?? 0,        color: 'text-emerald-600', sub: 'fully processed' },
+                          { label: 'Avg Effort',          value: crStats.avg_effort_man_days ? `${parseFloat(crStats.avg_effort_man_days).toFixed(1)} d` : '—', color: 'text-indigo-600', sub: 'man-days per CR' },
+                        ].map((s, i) => (
+                          <div key={s.label} className="bg-white rounded-2xl border border-gray-100 shadow-sm px-5 py-4">
+                            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">{s.label}</p>
+                            <p className={`text-3xl font-extrabold ${s.color}`}>{s.value}</p>
+                            <p className="text-xs text-gray-400 mt-1">{s.sub}</p>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Stage funnel */}
+                      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+                        <h3 className="text-sm font-bold text-gray-800 mb-4">Approval Stage Funnel</h3>
+                        <div className="space-y-3">
+                          {[
+                            { key: 'csm_review',   label: 'CSM Review',   color: 'bg-blue-500' },
+                            { key: 'pm_review',    label: 'PM Review',    color: 'bg-indigo-500' },
+                            { key: 'sales_review', label: 'Sales Review', color: 'bg-violet-500' },
+                            { key: 'admin_review', label: 'Admin Review', color: 'bg-amber-500' },
+                            { key: 'approved',     label: 'Approved',     color: 'bg-emerald-500' },
+                            { key: 'rejected',     label: 'Rejected',     color: 'bg-red-400' },
+                          ].map(stage => {
+                            const count = crStats.by_stage?.[stage.key] ?? 0;
+                            const total = crStats.total || 1;
+                            const pct = Math.round((count / total) * 100);
+                            return (
+                              <div key={stage.key} className="flex items-center gap-3">
+                                <span className="text-xs font-semibold text-gray-600 w-28 flex-shrink-0">{stage.label}</span>
+                                <div className="flex-1 bg-gray-100 rounded-full h-3 overflow-hidden">
+                                  <div className={`h-3 rounded-full ${stage.color} transition-all`} style={{ width: `${pct}%` }} />
+                                </div>
+                                <span className="text-xs font-bold text-gray-700 w-8 text-right">{count}</span>
+                                <span className="text-[10px] text-gray-400 w-8">{pct}%</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* By type + By billing type */}
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        {/* By request type */}
+                        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+                          <h3 className="text-sm font-bold text-gray-800 mb-4">By Request Type</h3>
+                          {!crStats.by_type || Object.keys(crStats.by_type).length === 0 ? (
+                            <p className="text-xs text-gray-400 text-center py-6">No data</p>
+                          ) : (
+                            <div className="space-y-3">
+                              {Object.entries(crStats.by_type as Record<string,number>).sort((a,b) => b[1]-a[1]).map(([type, count]) => {
+                                const total = Object.values(crStats.by_type as Record<string,number>).reduce((s,v) => s + v, 0) || 1;
+                                const pct = Math.round(((count as number) / total) * 100);
+                                return (
+                                  <div key={type} className="flex items-center gap-3">
+                                    <span className="text-xs font-medium text-gray-600 w-36 flex-shrink-0 capitalize">{String(type).replace(/_/g,' ')}</span>
+                                    <div className="flex-1 bg-gray-100 rounded-full h-2.5 overflow-hidden">
+                                      <div className="h-2.5 rounded-full bg-indigo-400 transition-all" style={{ width: `${pct}%` }} />
+                                    </div>
+                                    <span className="text-xs font-bold text-gray-700 w-6 text-right">{String(count)}</span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* By billing type */}
+                        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+                          <h3 className="text-sm font-bold text-gray-800 mb-4">By Billing Type</h3>
+                          {!crStats.by_billing_type || Object.keys(crStats.by_billing_type).length === 0 ? (
+                            <p className="text-xs text-gray-400 text-center py-6">No approved CRs with billing classification yet</p>
+                          ) : (
+                            <div className="space-y-3">
+                              {Object.entries(crStats.by_billing_type as Record<string,number>).sort((a,b) => b[1]-a[1]).map(([type, count]) => {
+                                const total = Object.values(crStats.by_billing_type as Record<string,number>).reduce((s,v) => s + v, 0) || 1;
+                                const pct = Math.round(((count as number) / total) * 100);
+                                const color = type === 'paid_cr' ? 'bg-emerald-400' : type === 'engineering' ? 'bg-blue-400' : 'bg-violet-400';
+                                return (
+                                  <div key={type} className="flex items-center gap-3">
+                                    <span className="text-xs font-medium text-gray-600 w-36 flex-shrink-0 capitalize">{String(type).replace(/_/g,' ')}</span>
+                                    <div className="flex-1 bg-gray-100 rounded-full h-2.5 overflow-hidden">
+                                      <div className={`h-2.5 rounded-full ${color} transition-all`} style={{ width: `${pct}%` }} />
+                                    </div>
+                                    <span className="text-xs font-bold text-gray-700 w-6 text-right">{String(count)}</span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Volume stats */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm px-5 py-4">
+                          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Pending This Week</p>
+                          <p className="text-2xl font-extrabold text-amber-600">{crStats.pending_this_week ?? 0}</p>
+                          <p className="text-xs text-gray-400 mt-1">new CRs submitted in the last 7 days</p>
+                        </div>
+                        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm px-5 py-4">
+                          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Approved This Month</p>
+                          <p className="text-2xl font-extrabold text-emerald-600">{crStats.approved_this_month ?? 0}</p>
+                          <p className="text-xs text-gray-400 mt-1">CRs fully approved in the last 30 days</p>
+                        </div>
+                      </div>
+                    </>
+                  )}
                 </div>
               )}
 

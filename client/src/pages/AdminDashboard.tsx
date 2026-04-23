@@ -1570,15 +1570,61 @@ const ClientRequestsView: React.FC = () => {
   const [comments, setComments]     = useState('');
   const [saving, setSaving]         = useState(false);
 
+  // ── Admin final approval queue ──────────────────────────────────────────────
+  const [adminReviewList, setAdminReviewList]       = useState<any[]>([]);
+  const [adminReviewTarget, setAdminReviewTarget]   = useState<any | null>(null);
+  const [adminForm, setAdminForm]                   = useState({ admin_notes: '', due_days: '7' });
+  const [adminSaving, setAdminSaving]               = useState(false);
+
   const fetch_ = async () => {
     setLoading(true);
     try {
       const r = await fetch(`${process.env.REACT_APP_API_URL || ""}/api/client-requests/all`);
-      if (r.ok) setRequests(await r.json());
+      if (r.ok) {
+        const all = await r.json();
+        setRequests(all);
+        setAdminReviewList(all.filter((req: any) => req.approval_stage === 'admin_review'));
+      }
     } finally { setLoading(false); }
   };
 
   useEffect(() => { fetch_(); }, []);
+
+  const handleAdminApprove = async () => {
+    if (!adminReviewTarget) return;
+    if (!adminForm.admin_notes.trim()) { alert('Admin notes are required.'); return; }
+    setAdminSaving(true);
+    try {
+      await fetch(`${process.env.REACT_APP_API_URL || ""}/api/projects/${adminReviewTarget.project_id}/client-requests/${adminReviewTarget.id}/admin-review`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'approve',
+          admin_notes: adminForm.admin_notes,
+          due_days: adminForm.due_days ? parseInt(adminForm.due_days) : 7,
+          admin_user_id: user?.id,
+        }),
+      });
+      setAdminReviewTarget(null);
+      setAdminForm({ admin_notes: '', due_days: '7' });
+      await fetch_();
+    } finally { setAdminSaving(false); }
+  };
+
+  const handleAdminReject = async (req: any) => {
+    if (!adminForm.admin_notes.trim()) { alert('Admin notes are required to reject.'); return; }
+    setAdminSaving(true);
+    try {
+      await fetch(`${process.env.REACT_APP_API_URL || ""}/api/projects/${req.project_id}/client-requests/${req.id}/admin-review`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'reject', admin_notes: adminForm.admin_notes, admin_user_id: user?.id }),
+      });
+      setAdminReviewTarget(null);
+      setAdminForm({ admin_notes: '', due_days: '7' });
+      await fetch_();
+    } finally { setAdminSaving(false); }
+  };
 
   // Close review panel on Escape
   useEffect(() => {
@@ -1627,6 +1673,174 @@ const ClientRequestsView: React.FC = () => {
 
   return (
     <>
+      {/* ── Admin Final Approval modal ──────────────────────────────────────── */}
+      {adminReviewTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" style={{ backdropFilter: 'blur(4px)' }}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden">
+            <div className="px-6 py-5 border-b border-gray-100 flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-xs font-bold text-amber-600 uppercase tracking-widest mb-1">Final Admin Approval</p>
+                <h3 className="text-base font-bold text-gray-900 leading-tight">{adminReviewTarget.title}</h3>
+                <p className="text-xs text-gray-400 mt-0.5">{adminReviewTarget.project_name} · {adminReviewTarget.client_name} · #{adminReviewTarget.id}</p>
+              </div>
+              <button onClick={() => setAdminReviewTarget(null)} className="text-gray-400 hover:text-gray-600 text-xl leading-none flex-shrink-0">&times;</button>
+            </div>
+
+            <div className="px-6 py-4 space-y-4 max-h-[60vh] overflow-y-auto">
+              {/* Full approval trail */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {adminReviewTarget.csm_notes && (
+                  <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-3">
+                    <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-wide mb-1">CSM Notes</p>
+                    <p className="text-xs text-indigo-800">{adminReviewTarget.csm_notes}</p>
+                  </div>
+                )}
+                {adminReviewTarget.mom_attendees && (
+                  <div className="bg-gray-50 border border-gray-100 rounded-xl p-3">
+                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-1">MOM Attendees</p>
+                    <p className="text-xs text-gray-600">
+                      {(() => { try { return JSON.parse(adminReviewTarget.mom_attendees).join(', '); } catch { return adminReviewTarget.mom_attendees; } })()}
+                    </p>
+                  </div>
+                )}
+                {(adminReviewTarget.effort_man_days || adminReviewTarget.effort_hours) && (
+                  <div className="bg-blue-50 border border-blue-100 rounded-xl p-3">
+                    <p className="text-[10px] font-bold text-blue-400 uppercase tracking-wide mb-1">PM Effort Estimate</p>
+                    <p className="text-sm font-bold text-blue-800">
+                      {adminReviewTarget.effort_man_days ? `${adminReviewTarget.effort_man_days} man-days` : ''}
+                      {adminReviewTarget.effort_man_days && adminReviewTarget.effort_hours ? ' · ' : ''}
+                      {adminReviewTarget.effort_hours ? `${adminReviewTarget.effort_hours} hrs` : ''}
+                    </p>
+                  </div>
+                )}
+                {adminReviewTarget.pm_notes && (
+                  <div className="bg-blue-50 border border-blue-100 rounded-xl p-3">
+                    <p className="text-[10px] font-bold text-blue-400 uppercase tracking-wide mb-1">PM Notes</p>
+                    <p className="text-xs text-blue-800">{adminReviewTarget.pm_notes}</p>
+                  </div>
+                )}
+                {adminReviewTarget.billing_type && (
+                  <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-3">
+                    <p className="text-[10px] font-bold text-emerald-400 uppercase tracking-wide mb-1">Billing Type</p>
+                    <p className="text-sm font-bold text-emerald-800 capitalize">{adminReviewTarget.billing_type.replace(/_/g,' ')}</p>
+                  </div>
+                )}
+                {adminReviewTarget.sales_notes && (
+                  <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-3">
+                    <p className="text-[10px] font-bold text-emerald-400 uppercase tracking-wide mb-1">Sales Notes</p>
+                    <p className="text-xs text-emerald-800">{adminReviewTarget.sales_notes}</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Admin notes — required */}
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">
+                  Admin Notes <span className="text-red-500">*</span>
+                  <span className="text-gray-400 font-normal ml-1">(required for both approve and reject)</span>
+                </label>
+                <textarea
+                  rows={4}
+                  value={adminForm.admin_notes}
+                  onChange={e => setAdminForm(f => ({ ...f, admin_notes: e.target.value }))}
+                  placeholder="Final decision rationale, conditions, follow-up instructions…"
+                  className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
+                  autoFocus
+                />
+              </div>
+
+              {/* Due days for CSM closure */}
+              <div className="flex items-center gap-3">
+                <label className="text-xs font-semibold text-gray-700 whitespace-nowrap">CSM closure deadline (days from now)</label>
+                <input
+                  type="number" min="1" max="90"
+                  value={adminForm.due_days}
+                  onChange={e => setAdminForm(f => ({ ...f, due_days: e.target.value }))}
+                  className="w-20 text-sm border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-400 text-center"
+                />
+                <span className="text-xs text-gray-400">days</span>
+              </div>
+            </div>
+
+            <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-between gap-3">
+              <button
+                onClick={() => handleAdminReject(adminReviewTarget)}
+                disabled={adminSaving}
+                className="px-5 py-2 rounded-xl text-sm font-semibold text-red-600 bg-red-50 border border-red-200 hover:bg-red-100 disabled:opacity-40 transition-colors">
+                {adminSaving ? 'Saving…' : 'Reject'}
+              </button>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setAdminReviewTarget(null)}
+                  disabled={adminSaving}
+                  className="px-5 py-2 rounded-xl text-sm font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 disabled:opacity-40 transition-colors">
+                  Cancel
+                </button>
+                <button
+                  onClick={handleAdminApprove}
+                  disabled={adminSaving}
+                  className="px-6 py-2 rounded-xl text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 transition-colors">
+                  {adminSaving ? 'Saving…' : 'Approve & Notify Team'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Pending Final Approval queue ────────────────────────────────────── */}
+      {adminReviewList.length > 0 && (
+        <div className="mb-8 bg-amber-50 border border-amber-200 rounded-2xl overflow-hidden">
+          <div className="px-6 py-4 border-b border-amber-200 flex items-center justify-between">
+            <div>
+              <h2 className="text-sm font-bold text-amber-900">Pending Final Approval</h2>
+              <p className="text-xs text-amber-700 mt-0.5">These CRs have passed CSM, PM, and Sales review — awaiting your final decision</p>
+            </div>
+            <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-amber-200 text-amber-900">{adminReviewList.length} pending</span>
+          </div>
+          <div className="divide-y divide-amber-100">
+            {adminReviewList.map(req => (
+              <div key={req.id} className="px-6 py-4 space-y-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap mb-1.5">
+                      <span className="text-xs font-bold uppercase tracking-wide px-2 py-0.5 rounded-full bg-amber-200 text-amber-900">
+                        {req.request_type?.replace(/_/g,' ')}
+                      </span>
+                      {req.billing_type && (
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 font-semibold capitalize">
+                          {req.billing_type.replace(/_/g,' ')}
+                        </span>
+                      )}
+                      <span className="text-xs text-gray-400">#{req.id}</span>
+                      {req.project_name && <span className="text-xs font-semibold text-gray-600">{req.project_name}</span>}
+                    </div>
+                    <p className="text-sm font-bold text-gray-900">{req.title}</p>
+                    {req.description && <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">{req.description}</p>}
+                  </div>
+                  <button
+                    onClick={() => { setAdminReviewTarget(req); setAdminForm({ admin_notes: '', due_days: '7' }); }}
+                    className="flex-shrink-0 px-4 py-1.5 rounded-xl text-xs font-semibold bg-indigo-600 text-white hover:bg-indigo-700 transition-colors">
+                    Final Review →
+                  </button>
+                </div>
+                {/* Quick trail summary */}
+                <div className="flex items-center gap-4 flex-wrap">
+                  {req.effort_man_days && (
+                    <span className="text-xs text-blue-700 font-semibold bg-blue-50 px-2 py-0.5 rounded-full">
+                      {req.effort_man_days} man-days
+                    </span>
+                  )}
+                  {req.csm_notes && <span className="text-xs text-indigo-600 font-medium truncate max-w-[180px]">CSM: {req.csm_notes}</span>}
+                  {req.pm_notes && <span className="text-xs text-blue-600 font-medium truncate max-w-[180px]">PM: {req.pm_notes}</span>}
+                  {req.sales_notes && <span className="text-xs text-emerald-600 font-medium truncate max-w-[180px]">Sales: {req.sales_notes}</span>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Review modal */}
       <AnimatePresence>
         {reviewTarget && (

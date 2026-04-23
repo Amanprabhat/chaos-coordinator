@@ -334,6 +334,7 @@ app.post('/api/projects/:id/client-requests', async (req, res) => {
     const { client_user_id, client_name, client_email, request_type, title, description, priority } = req.body;
     if (!title?.trim() || !description?.trim()) return res.status(400).json({ error: 'title and description are required' });
 
+    const isCRType = ['change_request', 'new_requirement'].includes(request_type || 'new_requirement');
     const [id] = await db('client_requests').insert({
       project_id: pid,
       client_user_id: client_user_id || null,
@@ -343,7 +344,9 @@ app.post('/api/projects/:id/client-requests', async (req, res) => {
       title: title.trim(),
       description: description.trim(),
       priority: priority || 'Medium',
-      status: 'pending',
+      status: isCRType ? 'pending' : 'under_review',
+      approval_stage: isCRType ? 'csm_review' : 'approved',
+      is_team_visible: isCRType ? false : true,
     });
     const row = await db('client_requests').where({ id }).first();
 
@@ -368,6 +371,18 @@ app.post('/api/projects/:id/client-requests', async (req, res) => {
                <blockquote style="border-left:3px solid #8b5cf6;padding:8px 16px;color:#374151;">${description}</blockquote>
                <p>Please log in to review and respond.</p>`,
       }).catch(() => {});
+    }
+
+    // For non-CR types: notify CSM directly as action item
+    if (!isCRType) {
+      const csmUsers = team.filter(u => u.role === 'CSM');
+      for (const csm of csmUsers) {
+        await createNotification(db, {
+          user_id: csm.id, project_id: pid, type: 'cr_action_item',
+          title: `Action item from ${client_name || 'client'}: ${title.slice(0, 60)}`,
+          message: `${request_type?.replace(/_/g, ' ')} on project "${project?.name}": ${description.slice(0, 100)}`,
+        });
+      }
     }
 
     // Check if same title/type was raised by another client on a DIFFERENT project — notify admins
@@ -461,6 +476,312 @@ app.get('/api/client-requests/all', async (_req, res) => {
       .orderBy('cr.created_at', 'desc');
     res.json(rows);
   } catch (e) { res.status(500).json({ error: 'Failed to fetch all client requests' }); }
+});
+
+// ── CR Approval Workflow Routes ───────────────────────────────────────────────
+
+// PUT /api/projects/:id/client-requests/:reqId/csm-review
+app.put('/api/projects/:id/client-requests/:reqId/csm-review', async (req, res) => {
+  try {
+    const pid = parseInt(req.params.id);
+    const reqId = parseInt(req.params.reqId);
+    const { action, csm_notes, mom_file_path, mom_attendees, csm_user_id } = req.body;
+    if (!action || !['approve', 'reject'].includes(action)) return res.status(400).json({ error: 'action must be approve or reject' });
+
+    const cr = await db('client_requests').where({ id: reqId, project_id: pid }).first();
+    if (!cr) return res.status(404).json({ error: 'Request not found' });
+
+    if (action === 'approve' && !mom_file_path && !mom_attendees) {
+      return res.status(400).json({ error: 'mom_file_path or mom_attendees is required for CSM approval' });
+    }
+
+    const now = new Date().toISOString();
+    const updates = {
+      csm_approved_by: csm_user_id || null,
+      csm_approved_at: now,
+      csm_notes: csm_notes || null,
+      mom_file_path: mom_file_path || null,
+      mom_attendees: mom_attendees || null,
+      updated_at: now,
+      ...(action === 'approve'
+        ? { approval_stage: 'pm_review', status: 'under_review' }
+        : { approval_stage: 'rejected', status: 'rejected' }),
+    };
+
+    await db('client_requests').where({ id: reqId }).update(updates);
+    const row = await db('client_requests').where({ id: reqId }).first();
+
+    // Log activity
+    await db('activity_log').insert({
+      project_id: pid,
+      action: 'cr_csm_reviewed',
+      details: JSON.stringify({ title: cr.title, action, csm_notes, project_id: pid }),
+      created_at: now,
+    }).catch(() => {});
+
+    // Notify PM if approved
+    if (action === 'approve') {
+      const project = await db('projects').where({ id: pid }).first();
+      const pmUsers = await db('users').where({ id: project?.pm_id }).select('id', 'name', 'email');
+      for (const pm of pmUsers) {
+        await createNotification(db, {
+          user_id: pm.id, project_id: pid, type: 'cr_pm_review_needed',
+          title: `CR needs your review: "${cr.title}"`,
+          message: `CSM has approved the CR on project "${project?.name}". Please review effort and approve or reject.`,
+        });
+        sendEmail({ to: pm.email, subject: `[Chaos Coordinator] CR needs PM review: "${cr.title}"`,
+          html: `<p>Hi ${pm.name},</p><p>A change request has passed CSM review and requires your attention.</p><p><strong>CR:</strong> ${cr.title}</p><p><strong>CSM Notes:</strong> ${csm_notes || '—'}</p><p>Please log in to review effort and provide a decision.</p>` }).catch(() => {});
+      }
+    }
+
+    res.json(row);
+  } catch (e) { console.error(e); res.status(500).json({ error: 'Failed to process CSM review' }); }
+});
+
+// PUT /api/projects/:id/client-requests/:reqId/pm-review
+app.put('/api/projects/:id/client-requests/:reqId/pm-review', async (req, res) => {
+  try {
+    const pid = parseInt(req.params.id);
+    const reqId = parseInt(req.params.reqId);
+    const { action, pm_notes, effort_man_days, effort_hours, pm_user_id } = req.body;
+    if (!action || !['approve', 'reject'].includes(action)) return res.status(400).json({ error: 'action must be approve or reject' });
+
+    const cr = await db('client_requests').where({ id: reqId, project_id: pid }).first();
+    if (!cr) return res.status(404).json({ error: 'Request not found' });
+
+    const isCRType = ['change_request', 'new_requirement'].includes(cr.request_type);
+    if (action === 'approve' && isCRType && !effort_man_days) {
+      return res.status(400).json({ error: 'effort_man_days is mandatory for change_request or new_requirement' });
+    }
+
+    const now = new Date().toISOString();
+    const updates = {
+      pm_approved_by: pm_user_id || null,
+      pm_approved_at: now,
+      pm_notes: pm_notes || null,
+      effort_man_days: effort_man_days || null,
+      effort_hours: effort_hours || null,
+      updated_at: now,
+      ...(action === 'approve'
+        ? { approval_stage: 'sales_review' }
+        : { approval_stage: 'rejected', status: 'rejected' }),
+    };
+
+    await db('client_requests').where({ id: reqId }).update(updates);
+    const row = await db('client_requests').where({ id: reqId }).first();
+
+    await db('activity_log').insert({
+      project_id: pid,
+      action: 'cr_pm_reviewed',
+      details: JSON.stringify({ title: cr.title, action, pm_notes, effort_man_days }),
+      created_at: now,
+    }).catch(() => {});
+
+    // Notify Sales if approved
+    if (action === 'approve') {
+      const project = await db('projects').where({ id: pid }).first();
+      const salesUsers = await db('users').where({ role: 'Sales', is_active: true }).select('id', 'name', 'email');
+      // Also notify the owner of the project (likely sales)
+      if (project?.owner_id) {
+        const owner = await db('users').where({ id: project.owner_id }).first();
+        if (owner && !salesUsers.find(s => s.id === owner.id)) salesUsers.push(owner);
+      }
+      for (const su of salesUsers) {
+        await createNotification(db, {
+          user_id: su.id, project_id: pid, type: 'cr_sales_review_needed',
+          title: `CR needs Sales review: "${cr.title}"`,
+          message: `PM has approved the CR with ${effort_man_days} man-days effort on project "${project?.name}". Please review billing type.`,
+        });
+        sendEmail({ to: su.email, subject: `[Chaos Coordinator] CR needs Sales review: "${cr.title}"`,
+          html: `<p>Hi ${su.name},</p><p>A change request requires your billing decision.</p><p><strong>CR:</strong> ${cr.title}</p><p><strong>Effort:</strong> ${effort_man_days} man-days</p><p>Please log in to assign billing type and approve or reject.</p>` }).catch(() => {});
+      }
+    }
+
+    res.json(row);
+  } catch (e) { console.error(e); res.status(500).json({ error: 'Failed to process PM review' }); }
+});
+
+// PUT /api/projects/:id/client-requests/:reqId/sales-review
+app.put('/api/projects/:id/client-requests/:reqId/sales-review', async (req, res) => {
+  try {
+    const pid = parseInt(req.params.id);
+    const reqId = parseInt(req.params.reqId);
+    const { action, sales_notes, billing_type, sales_user_id } = req.body;
+    if (!action || !['approve', 'reject'].includes(action)) return res.status(400).json({ error: 'action must be approve or reject' });
+
+    const cr = await db('client_requests').where({ id: reqId, project_id: pid }).first();
+    if (!cr) return res.status(404).json({ error: 'Request not found' });
+
+    const isCRType = ['change_request', 'new_requirement'].includes(cr.request_type);
+    if (action === 'approve' && isCRType && !billing_type) {
+      return res.status(400).json({ error: 'billing_type is mandatory for change_request or new_requirement' });
+    }
+    if (billing_type && !['paid_cr', 'engineering', 'sales'].includes(billing_type)) {
+      return res.status(400).json({ error: 'billing_type must be paid_cr, engineering, or sales' });
+    }
+
+    const now = new Date().toISOString();
+    const updates = {
+      sales_approved_by: sales_user_id || null,
+      sales_approved_at: now,
+      sales_notes: sales_notes || null,
+      billing_type: billing_type || null,
+      updated_at: now,
+      ...(action === 'approve'
+        ? { approval_stage: 'admin_review' }
+        : { approval_stage: 'rejected', status: 'rejected' }),
+    };
+
+    await db('client_requests').where({ id: reqId }).update(updates);
+    const row = await db('client_requests').where({ id: reqId }).first();
+
+    await db('activity_log').insert({
+      project_id: pid,
+      action: 'cr_sales_reviewed',
+      details: JSON.stringify({ title: cr.title, action, billing_type }),
+      created_at: now,
+    }).catch(() => {});
+
+    // Notify Admins if approved
+    if (action === 'approve') {
+      const project = await db('projects').where({ id: pid }).first();
+      const admins = await db('users').where({ role: 'Admin', is_active: true }).select('id', 'name', 'email');
+      for (const admin of admins) {
+        await createNotification(db, {
+          user_id: admin.id, project_id: pid, type: 'cr_admin_review_needed',
+          title: `CR needs final approval: "${cr.title}"`,
+          message: `Sales has approved the CR (billing: ${billing_type}) on project "${project?.name}". Awaiting your final approval.`,
+        });
+        sendEmail({ to: admin.email, subject: `[Chaos Coordinator] CR needs final Admin approval: "${cr.title}"`,
+          html: `<p>Hi ${admin.name},</p><p>A change request has passed all review stages and requires your final approval.</p><p><strong>CR:</strong> ${cr.title}</p><p><strong>Billing Type:</strong> ${billing_type || '—'}</p><p>Please log in to give final approval or reject.</p>` }).catch(() => {});
+      }
+    }
+
+    res.json(row);
+  } catch (e) { console.error(e); res.status(500).json({ error: 'Failed to process Sales review' }); }
+});
+
+// PUT /api/projects/:id/client-requests/:reqId/admin-review
+app.put('/api/projects/:id/client-requests/:reqId/admin-review', async (req, res) => {
+  try {
+    const pid = parseInt(req.params.id);
+    const reqId = parseInt(req.params.reqId);
+    const { action, admin_notes, admin_user_id } = req.body;
+    if (!action || !['approve', 'reject'].includes(action)) return res.status(400).json({ error: 'action must be approve or reject' });
+    if (!admin_notes || !admin_notes.trim()) return res.status(400).json({ error: 'admin_notes is mandatory' });
+
+    const cr = await db('client_requests').where({ id: reqId, project_id: pid }).first();
+    if (!cr) return res.status(404).json({ error: 'Request not found' });
+
+    const now = new Date().toISOString();
+    const updates = {
+      admin_approved_by: admin_user_id || null,
+      admin_approved_at: now,
+      admin_notes: admin_notes.trim(),
+      updated_at: now,
+      ...(action === 'approve'
+        ? { approval_stage: 'approved', status: 'approved', is_team_visible: true, approved_at: now,
+            due_date: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString() }
+        : { approval_stage: 'rejected', status: 'rejected', is_team_visible: false }),
+    };
+
+    await db('client_requests').where({ id: reqId }).update(updates);
+    const row = await db('client_requests').where({ id: reqId }).first();
+
+    await db('activity_log').insert({
+      project_id: pid,
+      action: 'cr_admin_reviewed',
+      details: JSON.stringify({ title: cr.title, action, admin_notes }),
+      created_at: now,
+    }).catch(() => {});
+
+    const project = await db('projects').where({ id: pid }).first();
+
+    if (action === 'approve') {
+      // Notify CSM, PM, Product Manager
+      const team = await getProjectTeam(db, pid);
+      for (const u of team) {
+        await createNotification(db, {
+          user_id: u.id, project_id: pid, type: 'cr_approved_deadline',
+          title: `CR approved — start work: "${cr.title}"`,
+          message: `The CR has been fully approved by Admin. You can now begin implementation. Admin notes: ${admin_notes}`,
+        });
+        sendEmail({ to: u.email, subject: `[Chaos Coordinator] CR Approved — Begin Work: "${cr.title}"`,
+          html: `<p>Hi ${u.name},</p><p>The change request <strong>"${cr.title}"</strong> has received final Admin approval.</p><p><strong>Admin Notes:</strong> ${admin_notes}</p><p>You may now begin implementation.</p>` }).catch(() => {});
+      }
+    }
+
+    // Notify client of final decision
+    if (cr.client_email) {
+      sendEmail({
+        to: cr.client_email,
+        subject: `[Chaos Coordinator] Your request "${cr.title}" has been ${action === 'approve' ? 'approved' : 'rejected'}`,
+        html: `<p>Hi ${cr.client_name},</p><p>Your request <strong>"${cr.title}"</strong> on project <strong>${project?.name}</strong> has been <strong>${action === 'approve' ? 'approved' : 'rejected'}</strong>.</p>${action === 'approve' ? '<p>Our team will be in touch regarding next steps.</p>' : `<p><strong>Notes:</strong> ${admin_notes}</p>`}`,
+      }).catch(() => {});
+      if (cr.client_user_id) {
+        await createNotification(db, {
+          user_id: cr.client_user_id, project_id: pid, type: action === 'approve' ? 'cr_approved' : 'cr_rejected',
+          title: `Your request "${cr.title.slice(0, 60)}" has been ${action === 'approve' ? 'approved' : 'rejected'}`,
+          message: action === 'approve' ? 'Your request has been fully approved. Our team will start working on it.' : `Your request was rejected. Notes: ${admin_notes}`,
+        });
+      }
+    }
+
+    res.json(row);
+  } catch (e) { console.error(e); res.status(500).json({ error: 'Failed to process Admin review' }); }
+});
+
+// GET /api/projects/:id/client-requests/pending-review
+app.get('/api/projects/:id/client-requests/pending-review', async (req, res) => {
+  try {
+    const pid = parseInt(req.params.id);
+    const { role } = req.query;
+    const stageMap = { CSM: 'csm_review', PM: 'pm_review', Sales: 'sales_review', Admin: 'admin_review' };
+    const stage = stageMap[String(role)];
+    if (!stage) return res.status(400).json({ error: 'role must be CSM, PM, Sales, or Admin' });
+    const rows = await db('client_requests').where({ project_id: pid, approval_stage: stage }).orderBy('created_at', 'desc');
+    res.json(rows);
+  } catch (e) { res.status(500).json({ error: 'Failed to fetch pending reviews' }); }
+});
+
+// GET /api/cr-analytics — aggregate stats across all CRs
+app.get('/api/cr-analytics', async (_req, res) => {
+  try {
+    const all = await db('client_requests').select('*');
+    const total = all.length;
+
+    const byStage = { csm_review: 0, pm_review: 0, sales_review: 0, admin_review: 0, approved: 0, rejected: 0 };
+    const byType  = { change_request: 0, new_requirement: 0, additional_help: 0, bug_report: 0, other: 0 };
+    const byBilling = { paid_cr: 0, engineering: 0, sales: 0 };
+
+    let totalEffort = 0;
+    let effortCount = 0;
+
+    const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    const monthAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    let pendingThisWeek = 0;
+    let approvedThisMonth = 0;
+
+    for (const cr of all) {
+      if (byStage[cr.approval_stage] !== undefined) byStage[cr.approval_stage]++;
+      if (byType[cr.request_type] !== undefined) byType[cr.request_type]++;
+      else byType.other = (byType.other || 0) + 1;
+      if (cr.billing_type && byBilling[cr.billing_type] !== undefined) byBilling[cr.billing_type]++;
+      if (cr.effort_man_days) { totalEffort += parseFloat(cr.effort_man_days); effortCount++; }
+      if (cr.approval_stage === 'csm_review' && cr.created_at >= weekAgo) pendingThisWeek++;
+      if (cr.approval_stage === 'approved' && cr.approved_at && cr.approved_at >= monthAgo) approvedThisMonth++;
+    }
+
+    res.json({
+      total,
+      by_stage: byStage,
+      by_type: byType,
+      by_billing_type: byBilling,
+      avg_effort_man_days: effortCount > 0 ? Math.round((totalEffort / effortCount) * 10) / 10 : 0,
+      pending_this_week: pendingThisWeek,
+      approved_this_month: approvedThisMonth,
+    });
+  } catch (e) { res.status(500).json({ error: 'Failed to fetch CR analytics' }); }
 });
 
 // PUT /api/users/:id/assign-projects — sync which projects a Client user can access

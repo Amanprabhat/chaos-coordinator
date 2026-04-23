@@ -40,6 +40,8 @@ interface ClientRequest {
   description: string;
   priority: string;
   status: string;
+  approval_stage?: string;
+  is_team_visible?: boolean;
   response_comments?: string;
   approved_at?: string;
   due_date?: string;
@@ -1147,8 +1149,23 @@ const ProjectDetail: React.FC<{ project: Project; milestones: Milestone[]; onBac
             <div className="space-y-3">
               {requests.map(req => {
                 const typeMeta = REQUEST_TYPE_LABELS[req.request_type] || REQUEST_TYPE_LABELS.other;
-                const statusMeta = REQUEST_STATUS_META[req.status] || REQUEST_STATUS_META.pending;
-                const isApproved = req.status === 'approved';
+                // Clients only see "Approved" when fully admin-approved (is_team_visible=true, approval_stage='approved')
+                // Everything else shows as "Pending Review" regardless of internal stage
+                const isCRType = ['change_request', 'new_requirement'].includes(req.request_type);
+                const clientStatusKey = (() => {
+                  if (req.status === 'rejected') return 'rejected';
+                  if (req.status === 'closed') return 'closed';
+                  if (isCRType) {
+                    // CR types: only show approved when fully through admin approval
+                    if (req.approval_stage === 'approved' && req.is_team_visible) return 'approved';
+                    return 'pending';
+                  }
+                  // Non-CR types: show actual status but map to client-friendly labels
+                  if (req.status === 'approved') return 'approved';
+                  return 'under_review';
+                })();
+                const statusMeta = REQUEST_STATUS_META[clientStatusKey] || REQUEST_STATUS_META.pending;
+                const isApproved = clientStatusKey === 'approved';
                 const daysLeft = req.due_date ? Math.ceil((new Date(req.due_date).getTime() - Date.now()) / 86400000) : null;
                 return (
                   <div key={req.id} className={`bg-white rounded-2xl border shadow-sm p-5 transition-all ${
@@ -1190,10 +1207,13 @@ const ProjectDetail: React.FC<{ project: Project; milestones: Milestone[]; onBac
                       )}
                     </div>
 
-                    {req.response_comments && (
-                      <div className={`mt-3 p-3 rounded-xl border text-xs ${
-                        req.status === 'rejected' ? 'bg-red-50 border-red-100 text-red-700' : 'bg-indigo-50 border-indigo-100 text-indigo-700'
-                      }`}>
+                    {req.status === 'rejected' && req.response_comments && (
+                      <div className="mt-3 p-3 rounded-xl border text-xs bg-red-50 border-red-100 text-red-700">
+                        <span className="font-bold">Team response: </span>{req.response_comments}
+                      </div>
+                    )}
+                    {isApproved && req.response_comments && (
+                      <div className="mt-3 p-3 rounded-xl border text-xs bg-indigo-50 border-indigo-100 text-indigo-700">
                         <span className="font-bold">Team response: </span>{req.response_comments}
                       </div>
                     )}
@@ -1376,13 +1396,13 @@ const PortalAnalytics: React.FC<{ projects: Project[]; milestoneMap: Record<numb
         <div className="relative flex flex-col sm:flex-row items-start sm:items-center gap-6">
           {/* Big donut */}
           <div className="relative flex-shrink-0">
-            <svg width={96} height={96} className="-rotate-90">
+            <svg width={96} height={96} className="rotate-180">
               <circle cx={48} cy={48} r={38} fill="none" stroke="rgba(255,255,255,0.2)" strokeWidth={9} />
               <circle cx={48} cy={48} r={38} fill="none" stroke="white" strokeWidth={9}
                 strokeDasharray={`${(overallPct / 100) * 2 * Math.PI * 38} ${2 * Math.PI * 38}`}
                 strokeLinecap="round" style={{ transition: 'stroke-dasharray 1s ease' }} />
             </svg>
-            <span className="absolute inset-0 flex items-center justify-center text-2xl font-extrabold text-white rotate-90">{overallPct}%</span>
+            <span className="absolute inset-0 flex items-center justify-center text-2xl font-extrabold text-white">{overallPct}%</span>
           </div>
 
           {/* Stats row */}

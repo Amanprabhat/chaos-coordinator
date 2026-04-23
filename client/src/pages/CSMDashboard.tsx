@@ -1251,6 +1251,13 @@ const CSMDashboard: React.FC = () => {
   const [quickDates, setQuickDates] = useState<Record<number, string>>({});
   const [showCompletedTasks, setShowCompletedTasks] = useState(false);
 
+  // CR Requests state
+  const [crRequests, setCrRequests]     = useState<any[]>([]);
+  const [crReviewModal, setCrReviewModal] = useState<{ req: any; projectId: number } | null>(null);
+  const [crRejectTarget, setCrRejectTarget] = useState<{ req: any; projectId: number } | null>(null);
+  const [crForm, setCrForm] = useState({ csm_notes: '', mom_attendees: '', mom_file_path: '' });
+  const [crSubmitting, setCrSubmitting] = useState(false);
+
   // Welcome + tour
   const [showWelcome, setShowWelcome] = useState(false);
   const [tourActive,  setTourActive]  = useState(false);
@@ -1351,6 +1358,24 @@ const CSMDashboard: React.FC = () => {
     return true;
   });
 
+  // Fetch CR requests needing CSM review (declared after myProjects to avoid forward reference)
+  const fetchCRRequests = useCallback(async () => {
+    if (!isCSM) return;
+    try {
+      const res = await fetch(`${process.env.REACT_APP_API_URL || ""}/api/client-requests/all`);
+      if (!res.ok) return;
+      const all: any[] = await res.json();
+      const myPids = new Set(myProjects.map((p: any) => p.id));
+      const crReview = all.filter((r: any) =>
+        myPids.has(r.project_id) &&
+        (r.approval_stage === 'csm_review' || (!['change_request','new_requirement'].includes(r.request_type) && r.is_team_visible))
+      );
+      setCrRequests(crReview);
+    } catch (e) { console.error(e); }
+  }, [isCSM, myProjects]);
+
+  useEffect(() => { if (myProjects.length > 0) fetchCRRequests(); }, [myProjects.length, fetchCRRequests]);
+
   // Pre-approval projects shown as "Coming Soon" — read-only, no actions
   const comingSoonProjects = projects.filter(p => {
     const relevant = ['INTAKE_CREATED', 'MEETING_SCHEDULED', 'MEETING_COMPLETED', 'HANDOVER_PENDING', 'AWAITING_APPROVAL'].includes(p.status);
@@ -1404,6 +1429,42 @@ const CSMDashboard: React.FC = () => {
     if (!deadline) return null;
     return Math.ceil((new Date(deadline).getTime() - Date.now()) / 86400000);
   }
+
+  const handleCsmApprove = async () => {
+    if (!crReviewModal) return;
+    const { req, projectId } = crReviewModal;
+    setCrSubmitting(true);
+    try {
+      const attendeesArr = crForm.mom_attendees.split(',').map(s => s.trim()).filter(Boolean);
+      await fetch(`${process.env.REACT_APP_API_URL || ""}/api/projects/${projectId}/client-requests/${req.id}/csm-review`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'approve',
+          csm_notes: crForm.csm_notes,
+          mom_attendees: JSON.stringify(attendeesArr),
+          mom_file_path: crForm.mom_file_path,
+          csm_user_id: user?.id,
+        }),
+      });
+      setCrReviewModal(null);
+      setCrForm({ csm_notes: '', mom_attendees: '', mom_file_path: '' });
+      fetchCRRequests();
+    } finally { setCrSubmitting(false); }
+  };
+
+  const handleCsmReject = async (req: any, projectId: number) => {
+    setCrSubmitting(true);
+    try {
+      await fetch(`${process.env.REACT_APP_API_URL || ""}/api/projects/${projectId}/client-requests/${req.id}/csm-review`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'reject', csm_user_id: user?.id }),
+      });
+      setCrRejectTarget(null);
+      fetchCRRequests();
+    } finally { setCrSubmitting(false); }
+  };
 
   const handleQuickStart = async (projectId: number) => {
     const date = quickDates[projectId];
@@ -1536,6 +1597,93 @@ const CSMDashboard: React.FC = () => {
             onPrev={prevTourStep}
             onSkip={skipTour}
           />
+        )}
+      </AnimatePresence>
+
+      {/* ── CSM Approve Modal ─────────────────────────────────────────────── */}
+      <AnimatePresence>
+        {crReviewModal && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4"
+            style={{ background: 'rgba(15,23,42,0.6)', backdropFilter: 'blur(4px)' }}
+            onClick={() => setCrReviewModal(null)}>
+            <motion.div initial={{ scale: 0.95, y: 16 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, y: 16 }}
+              transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+              className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden"
+              onClick={e => e.stopPropagation()}>
+              <div className="bg-gradient-to-r from-teal-600 to-cyan-600 px-6 py-4 flex items-center justify-between">
+                <div>
+                  <p className="text-white font-bold text-sm">CSM Review — Approve CR</p>
+                  <p className="text-teal-200 text-xs mt-0.5 truncate max-w-xs">{crReviewModal.req.title}</p>
+                </div>
+                <button onClick={() => setCrReviewModal(null)} className="p-1.5 rounded-lg bg-white/10 text-white hover:bg-white/20">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+              </div>
+              <div className="px-6 py-5 space-y-4">
+                <div>
+                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1.5">CSM Notes</label>
+                  <textarea value={crForm.csm_notes} onChange={e => setCrForm(f => ({ ...f, csm_notes: e.target.value }))}
+                    rows={3} placeholder="Your review notes, concerns, or observations…"
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-300 resize-none" />
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1.5">
+                    Meeting Attendees <span className="text-gray-400 font-normal">(comma-separated)</span>
+                  </label>
+                  <input value={crForm.mom_attendees} onChange={e => setCrForm(f => ({ ...f, mom_attendees: e.target.value }))}
+                    placeholder="e.g. Alice Smith, Bob Jones, Client SPOC"
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-300" />
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1.5">
+                    MoM Summary <span className="text-red-400">*</span>
+                  </label>
+                  <textarea value={crForm.mom_file_path} onChange={e => setCrForm(f => ({ ...f, mom_file_path: e.target.value }))}
+                    rows={4} placeholder="Summarise the meeting — key decisions, action items, client expectations…"
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-300 resize-none" />
+                  <p className="text-[10px] text-gray-400 mt-1">At least MoM summary or attendees required to approve.</p>
+                </div>
+              </div>
+              <div className="px-6 pb-5 flex gap-3">
+                <button onClick={() => setCrReviewModal(null)}
+                  className="flex-1 py-2.5 text-sm font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-xl transition-colors">
+                  Cancel
+                </button>
+                <button onClick={handleCsmApprove}
+                  disabled={crSubmitting || (!crForm.mom_file_path.trim() && !crForm.mom_attendees.trim())}
+                  className="flex-1 py-2.5 text-sm font-bold text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-50 rounded-xl transition-colors">
+                  {crSubmitting ? 'Submitting…' : 'Approve & Forward to PM'}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── CSM Reject Confirm ─────────────────────────────────────────────── */}
+      <AnimatePresence>
+        {crRejectTarget && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4"
+            style={{ background: 'rgba(15,23,42,0.6)', backdropFilter: 'blur(4px)' }}
+            onClick={() => setCrRejectTarget(null)}>
+            <motion.div initial={{ scale: 0.95, y: 16 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, y: 16 }}
+              transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+              className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden p-6"
+              onClick={e => e.stopPropagation()}>
+              <p className="text-base font-bold text-gray-900 mb-1">Reject this CR?</p>
+              <p className="text-sm text-gray-500 mb-5">"{crRejectTarget.req.title}" will be marked as rejected and the client notified.</p>
+              <div className="flex gap-3">
+                <button onClick={() => setCrRejectTarget(null)} className="flex-1 py-2.5 text-sm font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-xl">Cancel</button>
+                <button onClick={() => handleCsmReject(crRejectTarget.req, crRejectTarget.projectId)}
+                  disabled={crSubmitting}
+                  className="flex-1 py-2.5 text-sm font-bold text-white bg-red-600 hover:bg-red-700 disabled:opacity-50 rounded-xl">
+                  {crSubmitting ? 'Rejecting…' : 'Yes, Reject'}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
         )}
       </AnimatePresence>
 
@@ -2098,6 +2246,65 @@ const CSMDashboard: React.FC = () => {
                   </div>
                 </div>
               )}
+
+              {/* ── CR Requests (CSM only) ──────────────────────────────── */}
+              {isCSM && (() => {
+                const crPending = crRequests.filter(r => r.approval_stage === 'csm_review');
+                const actionItems = crRequests.filter(r => !['change_request','new_requirement'].includes(r.request_type));
+                if (crPending.length === 0 && actionItems.length === 0) return null;
+                return (
+                  <div>
+                    {crPending.length > 0 && (
+                      <>
+                        <div className="flex items-center justify-between mb-3">
+                          <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">CR Requests</p>
+                          <span className="text-[10px] font-bold bg-violet-100 text-violet-700 px-2 py-0.5 rounded-full">{crPending.length} pending</span>
+                        </div>
+                        <div className="space-y-2 mb-4">
+                          {crPending.map((req: any) => (
+                            <div key={req.id} className="p-3 bg-violet-50 border border-violet-100 rounded-xl">
+                              <div className="flex items-start justify-between gap-2 mb-1.5">
+                                <div className="min-w-0">
+                                  <p className="text-xs font-semibold text-gray-800 truncate">{req.title}</p>
+                                  <p className="text-[10px] text-violet-600 font-medium">{req.request_type?.replace(/_/g,' ')} · {req.priority}</p>
+                                  <p className="text-[10px] text-gray-400 truncate">{req.client_name} · {req.project_name}</p>
+                                </div>
+                              </div>
+                              <p className="text-[10px] text-gray-500 line-clamp-2 mb-2">{req.description}</p>
+                              <div className="flex gap-2">
+                                <button
+                                  onClick={() => { setCrReviewModal({ req, projectId: req.project_id }); setCrForm({ csm_notes: '', mom_attendees: '', mom_file_path: '' }); }}
+                                  className="flex-1 py-1.5 text-[10px] font-bold text-white bg-teal-600 hover:bg-teal-700 rounded-lg transition-colors">
+                                  Approve
+                                </button>
+                                <button
+                                  onClick={() => setCrRejectTarget({ req, projectId: req.project_id })}
+                                  className="flex-1 py-1.5 text-[10px] font-bold text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg transition-colors">
+                                  Reject
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                    {actionItems.length > 0 && (
+                      <>
+                        <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Action Items</p>
+                        <div className="space-y-2 mb-4">
+                          {actionItems.map((req: any) => (
+                            <div key={req.id} className="p-3 bg-amber-50 border border-amber-100 rounded-xl">
+                              <p className="text-xs font-semibold text-gray-800 truncate">{req.title}</p>
+                              <p className="text-[10px] text-amber-600">{req.request_type?.replace(/_/g,' ')} · {req.client_name}</p>
+                              <p className="text-[10px] text-gray-500 line-clamp-2 mt-1">{req.description}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                );
+              })()}
 
               {/* Action Required */}
               {(() => {
