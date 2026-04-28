@@ -45,12 +45,12 @@ npm start
 
 ```
 chaos-coordinator/
-├── client/                 # React frontend
+├── frontend/                 # React frontend
 │   ├── build/              # Built production files
 │   ├── public/             # Static assets
 │   ├── src/                # Source code
 │   └── package.json        # Frontend dependencies
-├── server/                 # Node.js backend
+├── backend/                 # Node.js backend
 │   ├── index-working.js     # Main server file
 │   ├── auth-demo.js        # Authentication system
 │   └── modules/           # API modules
@@ -176,11 +176,11 @@ npm run build
 ### **Hot Reload**
 - Frontend runs on `http://localhost:3000`
 - Backend runs on `http://localhost:3001`
-- Changes to `client/src/` files reflect instantly
+- Changes to `frontend/src/` files reflect instantly
 - No manual restart needed
 
 ### **Making Changes**
-1. Edit any file in `client/src/`
+1. Edit any file in `frontend/src/`
 2. Save the file
 3. Browser auto-refreshes with changes
 4. API calls work seamlessly

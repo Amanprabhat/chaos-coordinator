@@ -16,14 +16,14 @@ module.exports = {
   development: {
     client: 'sqlite3',
     connection: {
-      filename: path.join(__dirname, 'server', 'database', 'database.sqlite')
+      filename: path.join(__dirname, 'backend','database', 'database.sqlite')
     },
     migrations: {
-      directory: path.join(__dirname, 'server', 'database', 'migrations'),
+      directory: path.join(__dirname, 'backend','database', 'migrations'),
       tableName: 'knex_migrations'
     },
     seeds: {
-      directory: path.join(__dirname, 'server', 'database', 'seeds')
+      directory: path.join(__dirname, 'backend','database', 'seeds')
     },
     useNullAsDefault: true
   },
@@ -33,11 +33,11 @@ module.exports = {
     connection: process.env.DATABASE_URL,
     ssl: process.env.DATABASE_SSL === 'false' ? false : { rejectUnauthorized: false },
     migrations: {
-      directory: path.join(__dirname, 'server', 'database', 'migrations'),
+      directory: path.join(__dirname, 'backend','database', 'migrations'),
       tableName: 'knex_migrations'
     },
     seeds: {
-      directory: path.join(__dirname, 'server', 'database', 'seeds')
+      directory: path.join(__dirname, 'backend','database', 'seeds')
     },
     pool: {
       min: 2,

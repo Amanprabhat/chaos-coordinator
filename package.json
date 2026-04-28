@@ -2,13 +2,13 @@
   "name": "chaos-coordinator",
   "version": "1.0.0",
   "description": "Cross-functional project management and coordination platform",
-  "main": "server/index.js",
+  "main": "backend/index.js",
   "scripts": {
     "dev": "concurrently \"npm run server:dev\" \"npm run client:dev\"",
-    "server:dev": "nodemon server/index.js",
-    "client:dev": "cd client && npm start",
-    "build": "cd client && npm run build",
-    "start": "node server/index.js",
+    "server:dev": "nodemon backend/index.js",
+    "client:dev": "cd frontend && npm start",
+    "build": "cd frontend && npm run build",
+    "start": "node backend/index.js",
     "test": "jest",
     "db:migrate": "knex migrate:latest --knexfile knexfile.js",
     "db:migrate:prod": "NODE_ENV=production knex migrate:latest --knexfile knexfile.js",
@@ -18,6 +18,7 @@
     "db:reset": "knex migrate:rollback --all --knexfile knexfile.js && knex migrate:latest --knexfile knexfile.js && knex seed:run --knexfile knexfile.js"
   },
   "dependencies": {
+    "@azure/msal-node": "^5.1.4",
     "axios": "^1.7.7",
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
