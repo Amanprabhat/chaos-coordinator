@@ -13,8 +13,8 @@ import { SalesIntakePage } from '../features/sales';
 import ProjectDashboard from '../pages/ProjectDashboard';
 import ClientPortal from '../pages/ClientPortal';
 import SSOCallbackPage from '../pages/SSOCallbackPage';
-import RFPWorkspace from '../pages/RFPWorkspace';
-import RFPDetail from '../pages/RFPDetail';
+// import RFPWorkspace from '../pages/RFPWorkspace'; // RFP temporarily disabled
+// import RFPDetail from '../pages/RFPDetail'; // RFP temporarily disabled
 
 const RoleBasedRouter: React.FC = () => {
   const { user, isAuthenticated } = useAuth();
@@ -134,6 +134,7 @@ const RoleBasedRouter: React.FC = () => {
         }
       />
 
+      {/* RFP routes temporarily disabled
       <Route
         path="/rfp"
         element={
@@ -151,6 +152,7 @@ const RoleBasedRouter: React.FC = () => {
           </ProtectedRoute>
         }
       />
+      */}
 
       <Route
         path="*"

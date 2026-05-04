@@ -16,7 +16,7 @@ const tasksRoutes          = require('./modules/tasks/tasksRoutes');
 const milestonesRoutes     = require('./modules/milestones/milestonesRoutes');
 const handoverRoutes       = require('./modules/handover/handoverRoutes');
 const notificationsRoutes  = require('./modules/notifications/notificationsRoutes');
-const rfpRoutes            = require('./modules/rfp/rfpRoutes');
+// const rfpRoutes            = require('./modules/rfp/rfpRoutes'); // RFP temporarily disabled
 const { startNudgeCron }   = require('./modules/notifications/nudgeJob');
 const { sendEmail }        = require('./services/emailService');
 const path                 = require('path');
@@ -1025,7 +1025,7 @@ app.use('/api/tasks', tasksRoutes);
 app.use('/api/milestones', milestonesRoutes);
 app.use('/api/handover', handoverRoutes);
 app.use('/api/notifications', notificationsRoutes);
-app.use('/api/rfp',           rfpRoutes);
+// app.use('/api/rfp',           rfpRoutes); // RFP temporarily disabled
 
 // API Documentation endpoint
 app.get('/api', (req, res) => {
