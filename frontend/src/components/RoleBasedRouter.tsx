@@ -13,6 +13,8 @@ import { SalesIntakePage } from '../features/sales';
 import ProjectDashboard from '../pages/ProjectDashboard';
 import ClientPortal from '../pages/ClientPortal';
 import SSOCallbackPage from '../pages/SSOCallbackPage';
+import RFPWorkspace from '../pages/RFPWorkspace';
+import RFPDetail from '../pages/RFPDetail';
 
 const RoleBasedRouter: React.FC = () => {
   const { user, isAuthenticated } = useAuth();
@@ -128,6 +130,24 @@ const RoleBasedRouter: React.FC = () => {
         element={
           <ProtectedRoute allowedRoles={['CSM', 'PM', 'Sales', 'Admin']}>
             <Analytics />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/rfp"
+        element={
+          <ProtectedRoute allowedRoles={['Sales', 'Admin']}>
+            <RFPWorkspace />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/rfp/:id"
+        element={
+          <ProtectedRoute allowedRoles={['Sales', 'Admin', 'CSM', 'PM']}>
+            <RFPDetail />
           </ProtectedRoute>
         }
       />

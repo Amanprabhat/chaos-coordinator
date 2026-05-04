@@ -18,10 +18,12 @@
     "db:reset": "knex migrate:rollback --all --knexfile knexfile.js && knex migrate:latest --knexfile knexfile.js && knex seed:run --knexfile knexfile.js"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.91.1",
     "@azure/msal-node": "^5.1.4",
     "axios": "^1.7.7",
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
+    "docx": "^9.6.1",
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
     "express-rate-limit": "^7.1.5",
@@ -30,13 +32,16 @@
     "joi": "^17.11.0",
     "jsonwebtoken": "^9.0.2",
     "knex": "^3.0.1",
+    "mammoth": "^1.12.0",
     "multer": "^1.4.5-lts.1",
     "node-cron": "^4.2.1",
     "nodemailer": "^8.0.4",
+    "pdf-parse": "^2.4.5",
     "pg": "^8.11.3",
     "sqlite3": "^6.0.1",
     "uuid": "^13.0.0",
-    "winston": "^3.11.0"
+    "winston": "^3.11.0",
+    "xlsx": "^0.18.5"
   },
   "overrides": {
     "axios": {
